@@ -10,7 +10,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   K8S_REPO: highemerly/k8sg1-repo
-  K8S_MANIFEST_PATH: manifests/media-delivery/prd/deployment.yaml
+  K8S_MANIFEST_PATH: manifests/nmd/prd/web.yaml
 
 jobs:
   # ------------------------------------------------------------------ #
