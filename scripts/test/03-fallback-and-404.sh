@@ -15,8 +15,8 @@
 source "$(dirname "$0")/lib.sh"
 
 # Use distinct filenames so negative-cache from 03a does not affect 03b
-ORIGIN_URL_A="https://raw.githubusercontent.com/highemerly/media-delivery/main/assets/03a-does-not-exist.png"
-ORIGIN_URL_B="https://raw.githubusercontent.com/highemerly/media-delivery/main/assets/03b-does-not-exist.png"
+ORIGIN_URL_A="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/03a-does-not-exist.png"
+ORIGIN_URL_B="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/03b-does-not-exist.png"
 
 test_fallback_with_flag() {
   local encoded url status headers

@@ -15,7 +15,7 @@
 source "$(dirname "$0")/lib.sh"
 
 # Unique URL — must not collide with test 03b's negative cache entry
-ORIGIN_URL="https://raw.githubusercontent.com/highemerly/media-delivery/main/assets/04-does-not-exist.png"
+ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/04-does-not-exist.png"
 
 test_negative_cache_first_request() {
   local encoded url status headers

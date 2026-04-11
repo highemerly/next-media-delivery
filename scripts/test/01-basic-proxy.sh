@@ -12,7 +12,7 @@
 #   Access-Control-Allow-Origin : *
 source "$(dirname "$0")/lib.sh"
 
-ORIGIN_URL="https://raw.githubusercontent.com/highemerly/media-delivery/main/assets/test-image.png"
+ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
 
 test_basic_proxy() {
   local encoded url status headers
