@@ -26,7 +26,18 @@ proxy_url() {
   echo "$qs"
 }
 
-# get_http_status <url>
+# get_response <url>
+# Fetches headers and status code in a single request.
+# Stores results in: RESP_STATUS, RESP_HEADERS
+get_response() {
+  local url="$1" tmpfile
+  tmpfile=$(mktemp)
+  RESP_STATUS=$(curl -sI -o "$tmpfile" -w "%{http_code}" "$url")
+  RESP_HEADERS=$(tr -d '\r' < "$tmpfile")
+  rm -f "$tmpfile"
+}
+
+# get_http_status <url>  (single request; use get_response when headers are also needed)
 get_http_status() {
   curl -o /dev/null -s -w "%{http_code}" "$1"
 }

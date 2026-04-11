@@ -19,50 +19,47 @@ ORIGIN_URL_A="https://raw.githubusercontent.com/highemerly/next-media-delivery/m
 ORIGIN_URL_B="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/03b-does-not-exist.png"
 
 test_fallback_with_flag() {
-  local encoded url status headers
+  local encoded url
   encoded=$(encode_url "$ORIGIN_URL_A")
   url=$(proxy_url "03a-missing.png" "$encoded" "avatar" "fallback")
 
-  status=$(get_http_status "$url")
-  headers=$(get_all_headers "$url")
+  get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
   local ct nc cc st
 
-  ct=$(extract_header "content-type"  "$headers")
-  nc=$(extract_header "nmd-cache"     "$headers")
-  cc=$(extract_header "cache-control" "$headers")
-  st=$(extract_header "server-timing" "$headers")
+  ct=$(extract_header "content-type"  "$RESP_HEADERS")
+  nc=$(extract_header "nmd-cache"     "$RESP_HEADERS")
+  cc=$(extract_header "cache-control" "$RESP_HEADERS")
+  st=$(extract_header "server-timing" "$RESP_HEADERS")
 
-  assert_http_status "200"                         "$status" "HTTP status"          || ok=1
-  assert_match       "^image/"                     "$ct"     "Content-Type"         || ok=1
-  assert_eq          "L1=MISS, ORI, L1=FALLBACK"  "$nc"     "Nmd-Cache"            || ok=1
-  assert_eq          "max-age=86400"               "$cc"     "Cache-Control"        || ok=1
-  assert_server_timing_fetch_ge1                   "$st"     "Server-Timing fetch"  || ok=1
+  assert_http_status "200"                        "$RESP_STATUS" "HTTP status"          || ok=1
+  assert_match       "^image/"                    "$ct"          "Content-Type"         || ok=1
+  assert_eq          "L1=MISS, ORI, L1=FALLBACK" "$nc"          "Nmd-Cache"            || ok=1
+  assert_eq          "max-age=86400"              "$cc"          "Cache-Control"        || ok=1
+  assert_server_timing_fetch_ge1                  "$st"          "Server-Timing fetch"  || ok=1
 
   return $ok
 }
 
 test_no_fallback_404() {
-  local encoded url status headers
+  local encoded url
   encoded=$(encode_url "$ORIGIN_URL_B")
   url=$(proxy_url "03b-missing.png" "$encoded" "avatar")
-  # No "fallback" flag — origin 404 must propagate
 
-  status=$(get_http_status "$url")
-  headers=$(get_all_headers "$url")
+  get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
   local nc cc st
 
-  nc=$(extract_header "nmd-cache"     "$headers")
-  cc=$(extract_header "cache-control" "$headers")
-  st=$(extract_header "server-timing" "$headers")
+  nc=$(extract_header "nmd-cache"     "$RESP_HEADERS")
+  cc=$(extract_header "cache-control" "$RESP_HEADERS")
+  st=$(extract_header "server-timing" "$RESP_HEADERS")
 
-  assert_http_status "404"             "$status" "HTTP status"          || ok=1
-  assert_eq          "L1=MISS, ORI"   "$nc"     "Nmd-Cache"            || ok=1
-  assert_eq          "max-age=3600"   "$cc"     "Cache-Control"        || ok=1
-  assert_server_timing_fetch_ge1      "$st"     "Server-Timing fetch"  || ok=1
+  assert_http_status "404"           "$RESP_STATUS" "HTTP status"          || ok=1
+  assert_eq          "L1=MISS, ORI" "$nc"           "Nmd-Cache"            || ok=1
+  assert_eq          "max-age=3600" "$cc"            "Cache-Control"        || ok=1
+  assert_server_timing_fetch_ge1    "$st"            "Server-Timing fetch"  || ok=1
 
   return $ok
 }

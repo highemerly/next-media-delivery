@@ -15,33 +15,31 @@ source "$(dirname "$0")/lib.sh"
 ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
 
 test_basic_proxy() {
-  local encoded url status headers
+  local encoded url
   encoded=$(encode_url "$ORIGIN_URL")
-  # Use a unique filename so this test is unaffected by cache state from other tests
   url=$(proxy_url "01-test-image.png" "$encoded" "avatar")
 
-  status=$(get_http_status "$url")
-  headers=$(get_all_headers "$url")
+  get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
   local ct nc cc st ck acao
 
-  ct=$(extract_header "content-type"               "$headers")
-  nc=$(extract_header "nmd-cache"                  "$headers")
-  cc=$(extract_header "cache-control"              "$headers")
-  st=$(extract_header "server-timing"              "$headers")
-  ck=$(extract_header "nmd-cache-key"              "$headers")
-  acao=$(extract_header "access-control-allow-origin" "$headers")
+  ct=$(extract_header "content-type"                  "$RESP_HEADERS")
+  nc=$(extract_header "nmd-cache"                     "$RESP_HEADERS")
+  cc=$(extract_header "cache-control"                 "$RESP_HEADERS")
+  st=$(extract_header "server-timing"                 "$RESP_HEADERS")
+  ck=$(extract_header "nmd-cache-key"                 "$RESP_HEADERS")
+  acao=$(extract_header "access-control-allow-origin" "$RESP_HEADERS")
 
-  assert_http_status "200"                              "$status" "HTTP status"                      || ok=1
-  assert_match       "^image/"                          "$ct"     "Content-Type"                     || ok=1
-  assert_eq          "L1=MISS, ORI"                    "$nc"     "Nmd-Cache"                        || ok=1
-  assert_eq          "max-age=31536000, immutable"      "$cc"     "Cache-Control"                    || ok=1
-  assert_server_timing_fetch_ge1                        "$st"     "Server-Timing fetch"              || ok=1
-  assert_match       "^[0-9a-f]{64}$"                  "$ck"     "Nmd-Cache-Key"                    || ok=1
-  assert_eq          "*"                               "$acao"   "Access-Control-Allow-Origin"      || ok=1
-  assert_header_absent "set-cookie"                    "$headers" "Set-Cookie absent"                || ok=1
-  assert_header_absent "server"                        "$headers" "Server absent"                    || ok=1
+  assert_http_status "200"                         "$RESP_STATUS" "HTTP status"                 || ok=1
+  assert_match       "^image/"                     "$ct"          "Content-Type"                || ok=1
+  assert_eq          "L1=MISS, ORI"               "$nc"          "Nmd-Cache"                   || ok=1
+  assert_eq          "max-age=31536000, immutable" "$cc"          "Cache-Control"               || ok=1
+  assert_server_timing_fetch_ge1                   "$st"          "Server-Timing fetch"         || ok=1
+  assert_match       "^[0-9a-f]{64}$"              "$ck"          "Nmd-Cache-Key"               || ok=1
+  assert_eq          "*"                           "$acao"        "Access-Control-Allow-Origin" || ok=1
+  assert_header_absent "set-cookie"                "$RESP_HEADERS" "Set-Cookie absent"          || ok=1
+  assert_header_absent "server"                    "$RESP_HEADERS" "Server absent"              || ok=1
 
   return $ok
 }
