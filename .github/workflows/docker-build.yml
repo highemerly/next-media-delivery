@@ -27,21 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build image for testing
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: media-delivery:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Start media-delivery
         run: |
           cp .env.ci .env
-          docker compose up -d --wait
+          docker compose up -d --wait --build
 
       - name: Run integration tests
         run: bash scripts/test/run-all.sh
@@ -89,10 +78,9 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # ------------------------------------------------------------------ #
   # Job 3: Create PR to k8s manifest repository
