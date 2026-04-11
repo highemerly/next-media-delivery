@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image for testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: media-delivery:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start media-delivery
+        run: |
+          cp .env.ci .env
+          docker compose up -d
+          for i in $(seq 1 30); do
+            curl -o /dev/null -sf http://localhost:3000/ && break || true
+            sleep 1
+          done
+
+      - name: Run integration tests
+        run: bash scripts/test/run-all.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
