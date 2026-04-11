@@ -1,26 +1,27 @@
-name: Docker Build & Deploy
+name: CI / CD
 
 on:
   push:
-    branches:
-      - main
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   K8S_REPO: highemerly/k8sg1-repo
-  # k8sマニフェスト内の media-delivery イメージタグを書き換えるファイルパス
-  # 実際のパスに合わせて変更してください
   K8S_MANIFEST_PATH: manifests/media-delivery/prd/deployment.yaml
 
 jobs:
   # ------------------------------------------------------------------ #
-  # Job 1: Integration tests
-  # [WIP] コミットはスキップ / テストはスクリプト側で管理
+  # Job 1: Build & Integration tests (全ブランチ・全PR)
+  # [WIP] コミットメッセージまたはPRタイトルが [WIP] で始まる場合はスキップ
   # ------------------------------------------------------------------ #
   test:
-    name: Integration Tests
-    if: ${{ !startsWith(github.event.head_commit.message, '[WIP]') }}
+    name: Build & Integration Tests
+    if: |
+      !startsWith(github.event.head_commit.message, '[WIP]') &&
+      !startsWith(github.event.pull_request.title, '[WIP]')
     runs-on: ubuntu-latest
 
     steps:
@@ -40,11 +41,7 @@ jobs:
       - name: Start media-delivery
         run: |
           cp .env.ci .env
-          docker compose up -d
-          for i in $(seq 1 30); do
-            curl -o /dev/null -sf http://localhost:3000/ && break || true
-            sleep 1
-          done
+          docker compose up -d --wait
 
       - name: Run integration tests
         run: bash scripts/test/run-all.sh
@@ -55,10 +52,12 @@ jobs:
 
   # ------------------------------------------------------------------ #
   # Job 2: Build & push Docker image to GHCR
+  # main への push のみ実行
   # ------------------------------------------------------------------ #
   build-and-push:
     name: Build & Push Docker Image
     needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
 
     outputs:
