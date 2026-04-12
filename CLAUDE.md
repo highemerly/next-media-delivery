@@ -5,6 +5,9 @@
 - 仕様・動作変更を伴うコード修正は README.md の該当箇所も同時に更新する
 - ビルド確認は `go build ./...`
 
+## テスト
+- インテグレーションテストは `scripts/test/NN-<name>.sh` に追加する。`lib.sh` の共通関数（`get_response`・`assert_eq` 等）を使い、Nmd-Cache・Cache-Control・Server-Timing の期待値は README.md の仕様表に従って厳密に指定すること。
+
 ## 設計・仕様
 アーキテクチャ、エンドポイント仕様、X-Cache 値一覧、環境変数一覧などの詳細は README.md を参照すること。
 

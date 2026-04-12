@@ -473,6 +473,7 @@ Negative Cache (142 entries):
 | `CACHE_CONTROL_4XXERROR` | `max-age=3600` | エラー（4xx）時のレスポンス Cache-Control |
 | `CACHE_CONTROL_5XXERROR` | `max-age=120, must-revalidate` | エラー（5xx）時のレスポンス Cache-Control |
 | `CACHE_CONTROL_FAILOVER` | `max-age=86400` | エラー時、Failover画像を200 OKで返したときのレスポンス Cache-Control |
+| `CACHE_CONTROL_DENY` | `max-age=86400` | リクエストブロック時（DENY/BAD_REQ・DENY/BAD_CONTENT・DENY/BAD_DOMAIN）のレスポンス Cache-Control |
 | `S3_ENABLED` | `true` | L2 オブジェクトストレージの有効/無効 |
 | `S3_ENDPOINT` | — | オブジェクトストレージエンドポイント |
 | `S3_BUCKET` | — | バケット名 |

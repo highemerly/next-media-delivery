@@ -83,7 +83,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 		response.WriteError(w, http.StatusForbidden,
-			h.deps.Cfg.Cache.Control4XX,
+			h.deps.Cfg.Cache.ControlDeny,
 			"L1=DENY/BAD_REQ",
 			"")
 		return
@@ -123,7 +123,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	domain := parsedURL.Hostname()
 	if allow, err := h.deps.Circuit.Allow(ctx, domain); err == nil && !allow {
 		response.WriteError(w, http.StatusServiceUnavailable,
-			h.deps.Cfg.Cache.Control5XX,
+			"max-age=1800",
 			"L1=DENY/WAIT",
 			key)
 		return
@@ -132,7 +132,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 7. Blacklist check.
 	if h.deps.Blacklist != nil && h.deps.Blacklist.IsDenied(rawURL) {
 		response.WriteError(w, http.StatusForbidden,
-			h.deps.Cfg.Cache.Control4XX,
+			h.deps.Cfg.Cache.ControlDeny,
 			"L1=DENY/BAD_DOMAIN",
 			key)
 		return
@@ -370,8 +370,8 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 		slog.Warn("disallowed content-type from origin", "url", rawURL, "content_type", cte.contentType)
 		response.Write(w, response.Params{
 			StatusCode:   http.StatusUnprocessableEntity,
-			CacheControl: h.deps.Cfg.Cache.Control4XX,
-			XCache:       xcache + ", DENY/BAD_CONTENT",
+			CacheControl: h.deps.Cfg.Cache.ControlDeny,
+			XCache:       xcache + ", L1=DENY/BAD_CONTENT",
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),

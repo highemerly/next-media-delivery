@@ -3,6 +3,7 @@ name: CI / CD
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
     branches: ["**"]
 
@@ -34,6 +35,8 @@ jobs:
 
       - name: Run integration tests
         run: bash scripts/test/run-all.sh
+        env:
+          CDN_NAME: ci-delivery.piyo.me  # .env.ci の CDN_NAME と一致させること
 
       - name: Show logs on failure
         if: failure()
@@ -41,12 +44,12 @@ jobs:
 
   # ------------------------------------------------------------------ #
   # Job 2: Build & push Docker image to GHCR
-  # main への push のみ実行
+  # tag push のみ実行
   # ------------------------------------------------------------------ #
   build-and-push:
     name: Build & Push Docker Image
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -73,8 +76,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix=,format=short
-            type=raw,value=latest,enable=true
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v6

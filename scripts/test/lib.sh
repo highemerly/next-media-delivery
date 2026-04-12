@@ -158,6 +158,132 @@ print(int(parsedate_to_datetime(sys.argv[1]).timestamp()))
   fi
 }
 
+# get_image_body <url>
+# Downloads the response body to a temp file.
+# Sets RESP_BODY_FILE (caller must rm after use).
+get_image_body() {
+  RESP_BODY_FILE=$(mktemp --suffix=.bin)
+  curl -sf -o "$RESP_BODY_FILE" "$1"
+}
+
+# get_image_dimensions <file>
+# Returns "WxH" via python3 + struct (PNG) or identifies via file magic.
+# Works for WebP (RIFF) and PNG without external tools.
+get_image_dimensions() {
+  local file="$1"
+  python3 - "$file" <<'EOF'
+import sys, struct
+
+path = sys.argv[1]
+with open(path, 'rb') as f:
+    hdr = f.read(32)
+
+# PNG: 8-byte sig + 4-byte len + "IHDR" + 4W + 4H
+if hdr[:8] == b'\x89PNG\r\n\x1a\n':
+    w, h = struct.unpack('>II', hdr[16:24])
+    print(f"{w}x{h}")
+# WebP: RIFF????WEBPVP8 or VP8L or VP8X
+elif hdr[:4] == b'RIFF' and hdr[8:12] == b'WEBP':
+    chunk = hdr[12:16]
+    if chunk == b'VP8 ':
+        # Lossy: skip 10 bytes of bitstream header, then 14 bits W, 14 bits H
+        with open(path, 'rb') as f:
+            f.seek(20)
+            data = f.read(6)
+        # 3-byte start code check: 0x9d012a
+        w = (struct.unpack('<H', data[3:5])[0] & 0x3fff)
+        h = (struct.unpack('<H', data[5:7])[0] & 0x3fff)
+        print(f"{w}x{h}")
+    elif chunk == b'VP8L':
+        with open(path, 'rb') as f:
+            f.seek(21)
+            data = f.read(4)
+        bits = struct.unpack('<I', data)[0]
+        w = (bits & 0x3fff) + 1
+        h = ((bits >> 14) & 0x3fff) + 1
+        print(f"{w}x{h}")
+    elif chunk == b'VP8X':
+        with open(path, 'rb') as f:
+            f.seek(24)
+            data = f.read(6)
+        w = struct.unpack('<I', data[:3] + b'\x00')[0] + 1
+        h = struct.unpack('<I', data[3:] + b'\x00')[0] + 1
+        print(f"{w}x{h}")
+    else:
+        print("unknown_webp")
+# JPEG
+elif hdr[:2] == b'\xff\xd8':
+    with open(path, 'rb') as f:
+        f.seek(2)
+        while True:
+            marker = f.read(2)
+            if len(marker) < 2: break
+            length = struct.unpack('>H', f.read(2))[0]
+            if marker[1] in (0xC0, 0xC2):
+                f.read(1)  # precision
+                h, w = struct.unpack('>HH', f.read(4))
+                print(f"{w}x{h}")
+                break
+            f.seek(length - 2, 1)
+else:
+    print("unknown")
+EOF
+}
+
+# assert_image_dimensions <expected_WxH> <file> <label>
+assert_image_dimensions() {
+  local expected="$1" file="$2" label="$3"
+  local actual
+  actual=$(get_image_dimensions "$file")
+  if [ "$actual" = "$expected" ]; then
+    echo "  [OK] ${label}: dimensions ${actual}"
+    return 0
+  else
+    echo "  [FAIL] ${label}: expected ${expected}, got ${actual}"
+    return 1
+  fi
+}
+
+# assert_image_dimensions_le <max_W> <max_H> <file> <label>
+# Checks width <= max_W AND height <= max_H (for fit-within variants)
+assert_image_dimensions_le() {
+  local max_w="$1" max_h="$2" file="$3" label="$4"
+  local dims actual_w actual_h
+  dims=$(get_image_dimensions "$file")
+  actual_w=$(echo "$dims" | cut -dx -f1)
+  actual_h=$(echo "$dims" | cut -dx -f2)
+  if [ "$actual_w" -le "$max_w" ] && [ "$actual_h" -le "$max_h" ]; then
+    echo "  [OK] ${label}: ${dims} fits within ${max_w}x${max_h}"
+    return 0
+  else
+    echo "  [FAIL] ${label}: ${dims} exceeds ${max_w}x${max_h}"
+    return 1
+  fi
+}
+
+# assert_aspect_ratio_preserved <orig_W> <orig_H> <file> <label>
+# Checks that W/H ratio is preserved (within 1px rounding tolerance)
+assert_aspect_ratio_preserved() {
+  local orig_w="$1" orig_h="$2" file="$3" label="$4"
+  local dims actual_w actual_h
+  dims=$(get_image_dimensions "$file")
+  actual_w=$(echo "$dims" | cut -dx -f1)
+  actual_h=$(echo "$dims" | cut -dx -f2)
+  python3 - "$orig_w" "$orig_h" "$actual_w" "$actual_h" "$label" <<'EOF'
+import sys
+ow, oh, aw, ah = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+label = sys.argv[5]
+# expected height if width scaled proportionally
+expected_h = round(oh * aw / ow)
+if abs(ah - expected_h) <= 1:
+    print(f"  [OK] {label}: {aw}x{ah} preserves aspect ratio of {ow}x{oh}")
+    sys.exit(0)
+else:
+    print(f"  [FAIL] {label}: {aw}x{ah} does not preserve aspect ratio of {ow}x{oh} (expected height ~{expected_h})")
+    sys.exit(1)
+EOF
+}
+
 # run_test <name> <function>
 run_test() {
   local name="$1" fn="$2"
