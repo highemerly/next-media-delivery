@@ -58,15 +58,15 @@ func ParseQuery(r *http.Request) ParseResult {
 	q := r.URL.Query()
 	var v Variant
 	switch {
-	case q.Get("emoji") != "":
+	case isSet(q, "emoji"):
 		v = Emoji
-	case q.Get("avatar") != "":
+	case isSet(q, "avatar"):
 		v = Avatar
-	case q.Get("preview") != "":
+	case isSet(q, "preview"):
 		v = Preview
-	case q.Get("badge") != "":
+	case isSet(q, "badge"):
 		v = Badge
-	case q.Get("static") != "":
+	case isSet(q, "static"):
 		v = Static
 	default:
 		v = Raw
@@ -74,4 +74,10 @@ func ParseQuery(r *http.Request) ParseResult {
 	_, wantFallback := q["fallback"]
 	_, debug := q["debug"]
 	return ParseResult{Variant: v, WantFallback: wantFallback, Debug: debug}
+}
+
+// isSet reports whether the query parameter key is present (regardless of value).
+func isSet(q map[string][]string, key string) bool {
+	_, ok := q[key]
+	return ok
 }

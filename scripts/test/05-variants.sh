@@ -40,7 +40,7 @@ test_avatar() {
   assert_eq          "L1=MISS, ORI"               "$nc"          "Nmd-Cache"      || ok=1
   assert_eq          "max-age=31536000, immutable" "$cc"          "Cache-Control"  || ok=1
 
-  body_file=$(mktemp --suffix=.webp)
+  body_file=$(mktemp).webp
   curl -sf "$url" -o "$body_file"
   assert_image_dimensions          "320x240" "$body_file" "dimensions (320x240)"         || ok=1
   assert_aspect_ratio_preserved    640 480   "$body_file" "aspect ratio preserved (4:3)" || ok=1
@@ -61,7 +61,7 @@ test_emoji() {
   assert_http_status "200"       "$RESP_STATUS" "HTTP status"  || ok=1
   assert_match       "^image/webp" "$ct"        "Content-Type" || ok=1
 
-  body_file=$(mktemp --suffix=.webp)
+  body_file=$(mktemp).webp
   curl -sf "$url" -o "$body_file"
   assert_image_dimensions       "128x96" "$body_file" "dimensions (128x96)"          || ok=1
   assert_aspect_ratio_preserved 640 480  "$body_file" "aspect ratio preserved (4:3)" || ok=1
@@ -82,7 +82,7 @@ test_preview() {
   assert_http_status "200"         "$RESP_STATUS" "HTTP status"  || ok=1
   assert_match       "^image/webp" "$ct"          "Content-Type" || ok=1
 
-  body_file=$(mktemp --suffix=.webp)
+  body_file=$(mktemp).webp
   curl -sf "$url" -o "$body_file"
   assert_image_dimensions       "200x150" "$body_file" "dimensions (200x150)"         || ok=1
   assert_aspect_ratio_preserved 640 480   "$body_file" "aspect ratio preserved (4:3)" || ok=1
@@ -103,7 +103,7 @@ test_badge() {
   assert_http_status "200"        "$RESP_STATUS" "HTTP status"  || ok=1
   assert_match       "^image/png" "$ct"          "Content-Type" || ok=1
 
-  body_file=$(mktemp --suffix=.png)
+  body_file=$(mktemp).png
   curl -sf "$url" -o "$body_file"
   assert_image_dimensions "96x96" "$body_file" "dimensions (exact 96x96)" || ok=1
   rm -f "$body_file"
@@ -123,7 +123,7 @@ test_static() {
   assert_http_status "200"         "$RESP_STATUS" "HTTP status"            || ok=1
   assert_match       "^image/webp" "$ct"          "Content-Type"           || ok=1
 
-  body_file=$(mktemp --suffix=.webp)
+  body_file=$(mktemp).webp
   curl -sf "$url" -o "$body_file"
   assert_image_dimensions "640x480" "$body_file" "dimensions (original 640x480)" || ok=1
   rm -f "$body_file"

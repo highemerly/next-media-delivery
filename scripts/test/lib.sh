@@ -162,7 +162,7 @@ print(int(parsedate_to_datetime(sys.argv[1]).timestamp()))
 # Downloads the response body to a temp file.
 # Sets RESP_BODY_FILE (caller must rm after use).
 get_image_body() {
-  RESP_BODY_FILE=$(mktemp --suffix=.bin)
+  RESP_BODY_FILE=$(mktemp).bin
   curl -sf -o "$RESP_BODY_FILE" "$1"
 }
 
