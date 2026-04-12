@@ -11,6 +11,7 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/highemerly/media-delivery/internal/assets"
+	"github.com/highemerly/media-delivery/internal/response"
 	"github.com/highemerly/media-delivery/internal/blacklist"
 	"github.com/highemerly/media-delivery/internal/cache/l1"
 	"github.com/highemerly/media-delivery/internal/cache/l2"
@@ -43,6 +44,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
+	response.SetVersion(version)
 	setupLogger(cfg.Log.Level)
 
 	// L1 disk cache.

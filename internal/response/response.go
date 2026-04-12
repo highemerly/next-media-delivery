@@ -20,11 +20,18 @@ const (
 	headerXCache            = "Nmd-Cache"
 	headerXCacheKey         = "Nmd-Cache-Key"
 	headerXCacheable        = "Nmd-Cacheable"
+	headerNmdVersion        = "Nmd-Version"
 	headerServerTiming      = "Server-Timing"
 	headerTimingAllowOrigin = "Timing-Allow-Origin"
 
 	cspValue = "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'"
 )
+
+// appVersion is set once at startup via SetVersion.
+var appVersion = "dev"
+
+// SetVersion stores the build version to be emitted as Nmd-Version in every response.
+func SetVersion(v string) { appVersion = v }
 
 // headersToStrip are removed from the response unconditionally.
 var headersToStrip = []string{
@@ -70,6 +77,7 @@ func Write(w http.ResponseWriter, p Params) {
 	}
 	h.Set(headerXCache, p.XCache)
 	h.Set(headerXCacheKey, p.CacheKey)
+	h.Set(headerNmdVersion, appVersion)
 	h.Set(headerServerTiming, serverTiming(p.FetchDur, p.ConvertDur))
 
 	// Content headers.
