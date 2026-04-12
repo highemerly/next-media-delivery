@@ -1,4 +1,13 @@
 services:
+  httpbin:
+    image: kennethreitz/httpbin
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',80),2); s.close()"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
   media-delivery:
     build: .
     env_file:
@@ -8,6 +17,9 @@ services:
       - "${ADMIN_PORT:-3001}:${ADMIN_PORT:-3001}"
     tmpfs:
       - /cache
+    depends_on:
+      httpbin:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3000/healthz"]
       interval: 2s

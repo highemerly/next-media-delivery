@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Test 07: Non-image origin response → 422
 #
-# https://httpbin.org/headers returns application/json.
+# httpbin container (/headers) returns application/json.
 # Without ?debug, the proxy must reject it with 422.
 #
 # Expected:
@@ -10,7 +10,8 @@
 #   Cache-Control  : max-age=86400
 source "$(dirname "$0")/lib.sh"
 
-ORIGIN_URL="https://httpbin.org/headers"
+HTTPBIN_BASE="${HTTPBIN_BASE:-http://httpbin}"
+ORIGIN_URL="${HTTPBIN_BASE}/headers"
 
 test_bad_content_type() {
   local encoded url

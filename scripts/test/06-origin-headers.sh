@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Test 06: Origin request headers
 #
-# Uses https://httpbin.org/headers which echoes received request headers as JSON.
+# Uses httpbin container (/headers) which echoes received request headers as JSON.
 # Must use ?debug to bypass content-type check (response is application/json).
 #
 # Verified in one request:
 # 1. User-Agent は所定の値であること
 # 2. Accept は所定の値であること
 # 3. Cookie / Authorization / X-Forwarded-For / Referer が送信されないこと
-# 4. CDN-Loop ヘッダが付与されること（CDN_NAME=localhost の場合: "localhost; v=1.0"）
+# 4. CDN-Loop ヘッダが付与されること
 source "$(dirname "$0")/lib.sh"
 
-ORIGIN_URL="https://httpbin.org/headers"
+# docker compose ネットワーク内のサービス名で参照する
+HTTPBIN_BASE="${HTTPBIN_BASE:-http://httpbin}"
+ORIGIN_URL="${HTTPBIN_BASE}/headers"
 # CDN_NAME は起動時の環境変数に合わせる（未設定時は localhost）
 CDN_NAME="${CDN_NAME:-localhost}"
 EXPECTED_UA="NextMediaDelivery/1.0 (+https://github.com/highemerly/media-delivery; misskey compatible media proxy; instance=${CDN_NAME})"
@@ -22,7 +24,7 @@ test_origin_request_headers() {
   local encoded url body
   encoded=$(encode_url "$ORIGIN_URL")
   # debug フラグ必須 (application/json はそのままでは 422 になる)
-  url=$(proxy_url "06-headers.json" "$encoded" "emoji" "debug")
+  url=$(proxy_url "06-headers.json" "$encoded" "debug")
 
   # ボディ（JSON）を取得
   body=$(curl -sf "$url")
