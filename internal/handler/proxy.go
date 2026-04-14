@@ -606,17 +606,40 @@ func weakETag(t time.Time, size int64) string {
 
 // checkETagMatch returns true when the client's If-None-Match value matches
 // the given weak ETag, meaning the content has not changed and a 304 should
-// be returned. Handles both weak (W/"...") and unquoted forms from clients.
+// be returned.
+//
+// Implements RFC 9110 §13.1.2 / RFC 7232 §3.2:
+//   - "*" wildcard always matches.
+//   - The header may contain a comma-separated list of ETags; any match is
+//     sufficient.
+//   - Each list entry may be a strong ETag ("value") or a weak ETag (W/"value").
+//     Comparison is performed using the weak comparison algorithm (§8.8.3.2):
+//     two ETags are equal when their opaque tag values are identical, regardless
+//     of the weak prefix.
+//   - The server-side etag parameter is the raw opaque value (no quotes, no W/).
 func checkETagMatch(r *http.Request, etag string) bool {
 	inm := r.Header.Get("If-None-Match")
 	if inm == "" {
 		return false
 	}
-	// Normalise: strip W/" prefix and trailing quote for comparison.
-	inm = strings.TrimPrefix(inm, `W/"`)
-	inm = strings.TrimPrefix(inm, `"`)
-	inm = strings.TrimSuffix(inm, `"`)
-	return inm == etag
+	// Wildcard matches any entity (RFC 9110 §13.1.2).
+	if strings.TrimSpace(inm) == "*" {
+		return true
+	}
+	// Parse comma-separated list and compare using weak comparison.
+	for _, token := range strings.Split(inm, ",") {
+		token = strings.TrimSpace(token)
+		// Strip optional weak indicator.
+		token = strings.TrimPrefix(token, "W/")
+		// Strip surrounding quotes; skip malformed tokens.
+		if len(token) < 2 || token[0] != '"' || token[len(token)-1] != '"' {
+			continue
+		}
+		if token[1:len(token)-1] == etag {
+			return true
+		}
+	}
+	return false
 }
 
 // checkNotModified returns true when the client's If-Modified-Since value is
