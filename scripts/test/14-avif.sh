@@ -108,10 +108,10 @@ test_avatar_webp_unchanged() {
 }
 
 # ---- キャッシュキー分離: avatar.avif と avatar.webp が別エントリであること ----
-# avatar.avif を先にフェッチ済みの状態で avatar.webp を叩き、L1=MISS になることを確認。
+# 他テストと被らない URL を使い、avif のみ先にフェッチして webp が L1=MISS になることを確認。
 test_cache_key_isolation() {
   local encoded url_avif url_webp
-  encoded=$(encode_url "${BASE_URL}/test-large.png")
+  encoded=$(encode_url "${BASE_URL}/test-small.png")
   url_avif=$(proxy_url "14-isolation.avif" "$encoded" "avatar")
   url_webp=$(proxy_url "14-isolation.webp" "$encoded" "avatar")
 
