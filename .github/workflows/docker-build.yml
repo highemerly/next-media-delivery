@@ -41,7 +41,10 @@ jobs:
 
       - name: Show logs on failure
         if: failure()
-        run: docker compose logs
+        run: |
+          docker compose logs
+          echo "--- media-delivery env (DEBUG_KEY) ---"
+          docker compose exec -T media-delivery env | grep -i debug || true
 
   # ------------------------------------------------------------------ #
   # Job 2: Build & push Docker image to GHCR

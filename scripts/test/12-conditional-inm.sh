@@ -24,7 +24,7 @@
 source "$(dirname "$0")/lib.sh"
 
 ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
-ORIGIN_URL_MISS="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-large.png"
+ORIGIN_URL_MISS="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-large.jpg"
 
 # Case A: Origin fetch → ETag present
 test_etag_on_origin_fetch() {
