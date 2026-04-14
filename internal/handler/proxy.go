@@ -230,18 +230,29 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sfVal = val
 	} else {
 		// Singleflight deduplicates concurrent requests for the same key.
+		// The fetch goroutine runs with the first caller's ctx intentionally:
+		// if that caller times out or disconnects, ctx is cancelled, the HTTP
+		// client aborts the origin request, and all waiters (B, C, …) receive
+		// the same error via ch. This is the desired behaviour — there is no
+		// point keeping an origin request alive when the triggering caller is
+		// already gone.
 		ch := h.sf.DoChan(key, func() (interface{}, error) {
 			return h.originFetch(ctx, key, rawURL, v, f, domain, debug)
 		})
 		select {
 		case res := <-ch:
 			if res.Err != nil {
-				// Unexpected panic inside singleflight (not an origin error).
+				// Covers both origin errors and ctx cancellation propagated
+				// through originFetch (e.g. REQUEST_TIMEOUT, client disconnect).
 				h.handleOriginError(ctx, w, key, rawURL, res.Err, xcachePrefix, wantFallback, 0, v)
 				return
 			}
 			sfVal = res.Val.(*sfResult)
 		case <-ctx.Done():
+			// This caller's own context expired before the shared fetch
+			// completed. The fetch goroutine will also see the cancellation
+			// shortly and fail, causing any other waiters to receive an error
+			// via the case above.
 			response.WriteError(w, http.StatusGatewayTimeout,
 				h.deps.Cfg.Cache.Control5XX,
 				xcachePrefix+", ORI=TIMEOUT",
