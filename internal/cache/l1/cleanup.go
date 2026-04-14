@@ -43,15 +43,17 @@ func (cl *Cleaner) Run(ctx context.Context) {
 }
 
 func (cl *Cleaner) runOnce(ctx context.Context) {
-	totalBytes, _, _, err := cl.cache.DirUsage()
+	// Single disk scan: both the threshold check and eviction use this result.
+	keysWithSize, err := cl.cache.KeysWithSize()
 	if err != nil {
-		slog.Error("l1 cleanup: failed to read dir usage", "err", err)
+		slog.Error("l1 cleanup: failed to list keys", "err", err)
 		return
 	}
+	totalBytes, _, _ := SumUsage(keysWithSize)
 
 	if totalBytes <= cl.maxBytes {
 		// Under threshold — only GC orphan tracker entries.
-		cl.gcOrphans(ctx)
+		cl.gcOrphans(ctx, keysWithSize)
 		return
 	}
 
@@ -60,12 +62,6 @@ func (cl *Cleaner) runOnce(ctx context.Context) {
 		"max_bytes", cl.maxBytes,
 		"target_bytes", cl.tgtBytes,
 	)
-
-	keysWithSize, err := cl.cache.KeysWithSize()
-	if err != nil {
-		slog.Error("l1 cleanup: failed to list keys", "err", err)
-		return
-	}
 
 	// Sort keys oldest-mtime first.
 	type kv struct {
@@ -100,19 +96,20 @@ func (cl *Cleaner) runOnce(ctx context.Context) {
 			slog.Error("l1 cleanup: failed to delete tracker entries", "err", err)
 		}
 		slog.Info("l1 cleanup: eviction complete", "deleted", len(deleted))
+		// Remove evicted keys from the map so gcOrphans works on current state.
+		for _, k := range deleted {
+			delete(keysWithSize, k)
+		}
 	}
 
-	cl.gcOrphans(ctx)
+	cl.gcOrphans(ctx, keysWithSize)
 }
 
 // gcOrphans removes tracker entries for keys that no longer exist on disk.
-func (cl *Cleaner) gcOrphans(ctx context.Context) {
-	keysWithSize, err := cl.cache.KeysWithSize()
-	if err != nil {
-		return
-	}
-	existing := make(map[string]struct{}, len(keysWithSize))
-	for k := range keysWithSize {
+// keys is the already-scanned KeysWithSize result from the caller.
+func (cl *Cleaner) gcOrphans(ctx context.Context, keys map[string]KeyEntry) {
+	existing := make(map[string]struct{}, len(keys))
+	for k := range keys {
 		existing[k] = struct{}{}
 	}
 	if mt, ok := cl.tracker.(*store.MemoryTracker); ok {

@@ -60,7 +60,8 @@ func makeStatsHandler(
 	cfg *config.Config,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		usedBytes, fileCount, oldestMtime, _ := l1Cache.DirUsage()
+		keys, _ := l1Cache.KeysWithSize()
+		usedBytes, fileCount, oldestMtime := l1.SumUsage(keys)
 
 		snapshot, _ := circuit.Snapshot(r.Context())
 		closed, open, halfOpen := 0, 0, 0
@@ -202,7 +203,7 @@ func makePurgeAllHandler(l1Cache *l1.Cache, l2Store l2.Store, tracker store.Acce
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		keys, err := l1Cache.KeysWithMtime()
+		keys, err := l1Cache.KeysWithSize()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

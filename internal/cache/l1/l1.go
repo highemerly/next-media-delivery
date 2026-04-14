@@ -103,66 +103,16 @@ func (c *Cache) Delete(key string) error {
 	return nil
 }
 
-// DirUsage returns the total size in bytes and file count of body files in the cache directory.
-func (c *Cache) DirUsage() (totalBytes int64, fileCount int, oldestMtime time.Time, err error) {
-	entries, err := os.ReadDir(c.dir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return 0, 0, time.Time{}, nil
-		}
-		return 0, 0, time.Time{}, err
-	}
-	oldestMtime = time.Now()
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".body") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		totalBytes += info.Size()
-		fileCount++
-		if info.ModTime().Before(oldestMtime) {
-			oldestMtime = info.ModTime()
-		}
-	}
-	return totalBytes, fileCount, oldestMtime, nil
-}
-
 // KeyEntry holds metadata for a single cached file.
 type KeyEntry struct {
 	Mtime time.Time
 	Size  int64
 }
 
-// KeysWithMtime returns a map of cache key → mtime for all body files.
-// Used by the cleanup goroutine and gcOrphans.
-func (c *Cache) KeysWithMtime() (map[string]time.Time, error) {
-	entries, err := os.ReadDir(c.dir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return map[string]time.Time{}, nil
-		}
-		return nil, err
-	}
-	m := make(map[string]time.Time, len(entries)/2)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".body") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		key := strings.TrimSuffix(e.Name(), ".body")
-		m[key] = info.ModTime()
-	}
-	return m, nil
-}
-
-// KeysWithSize returns a map of cache key → KeyEntry (mtime + size) for all body files.
-// Used by the cleanup goroutine for accurate eviction accounting.
+// KeysWithSize returns a map of cache key → KeyEntry (mtime + size) for all
+// body files. It is the single disk-scan entry point; callers that need only
+// a subset of this information (total bytes, file count, oldest mtime, or just
+// the key list) should derive it from this result using SumUsage.
 func (c *Cache) KeysWithSize() (map[string]KeyEntry, error) {
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
@@ -184,6 +134,20 @@ func (c *Cache) KeysWithSize() (map[string]KeyEntry, error) {
 		m[key] = KeyEntry{Mtime: info.ModTime(), Size: info.Size()}
 	}
 	return m, nil
+}
+
+// SumUsage aggregates a KeysWithSize result into the scalar values that were
+// previously returned by the removed DirUsage method.
+func SumUsage(keys map[string]KeyEntry) (totalBytes int64, fileCount int, oldestMtime time.Time) {
+	oldestMtime = time.Now()
+	for _, e := range keys {
+		totalBytes += e.Size
+		fileCount++
+		if e.Mtime.Before(oldestMtime) {
+			oldestMtime = e.Mtime
+		}
+	}
+	return totalBytes, fileCount, oldestMtime
 }
 
 func writeAtomic(dst string, data []byte) error {
