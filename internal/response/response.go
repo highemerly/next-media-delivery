@@ -135,13 +135,14 @@ func WriteNotModified(w http.ResponseWriter, p Params) {
 }
 
 // WriteError writes an error response with appropriate headers.
-func WriteError(w http.ResponseWriter, statusCode int, cacheControl, xcache, cacheKey string) {
+func WriteError(w http.ResponseWriter, statusCode int, cacheControl, xcache, cacheKey, variant string) {
 	Write(w, Params{
 		StatusCode:   statusCode,
 		CacheControl: cacheControl,
 		XCache:       xcache,
 		CacheKey:     cacheKey,
 		LastModified: time.Now(),
+		Variant:      variant,
 	})
 }
 

@@ -24,6 +24,7 @@
 source "$(dirname "$0")/lib.sh"
 
 ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
+ORIGIN_URL_MISS="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-large.png"
 
 # Case A: Origin fetch → ETag present
 test_etag_on_origin_fetch() {
@@ -125,8 +126,9 @@ test_etag_mismatch() {
 # Case E: L1 MISS + If-None-Match present → 200 (ignored)
 test_etag_on_miss() {
   local encoded url
-  encoded=$(encode_url "$ORIGIN_URL")
-  url=$(proxy_url "12e-test-image-$(date +%s).png" "$encoded" "avatar")
+  # Use a different origin URL that has never been cached in this test run
+  encoded=$(encode_url "$ORIGIN_URL_MISS")
+  url=$(proxy_url "12e-test-image-miss.png" "$encoded" "avatar")
 
   get_response_with_header "$url" "If-None-Match" 'W/"9999999999-999999"'
 

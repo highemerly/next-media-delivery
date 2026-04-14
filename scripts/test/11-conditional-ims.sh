@@ -17,6 +17,7 @@
 source "$(dirname "$0")/lib.sh"
 
 ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
+ORIGIN_URL_MISS="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-large.png"
 
 # Case A: L1 HIT + IMS matches → 304
 test_ims_not_modified() {
@@ -76,9 +77,9 @@ test_ims_stale() {
 # Case C: L1 MISS + IMS present → 200 (IMS ignored on origin fetch)
 test_ims_on_miss() {
   local encoded url
-  encoded=$(encode_url "$ORIGIN_URL")
-  # Use a unique filename that has never been cached
-  url=$(proxy_url "11c-test-image-$(date +%s).png" "$encoded" "avatar")
+  # Use a different origin URL that has never been cached in this test run
+  encoded=$(encode_url "$ORIGIN_URL_MISS")
+  url=$(proxy_url "11c-test-image-miss.png" "$encoded" "avatar")
 
   get_response_with_header "$url" "If-Modified-Since" "Thu, 01 Jan 2099 00:00:00 GMT"
 

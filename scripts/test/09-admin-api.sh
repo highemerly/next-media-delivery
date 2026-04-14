@@ -47,9 +47,11 @@ test_purge_key() {
   url=$(proxy_url "09b-purge.png" "$encoded" "emoji")
   curl -sf "$url" -o /dev/null  # warm up
 
-  # Nmd-Cache-Key を取得
+  # Nmd-Cache-Key を取得（sha256 部分のみ抽出）
   get_response "$url"
-  key=$(extract_header "nmd-cache-key" "$RESP_HEADERS")
+  local raw_key
+  raw_key=$(extract_header "nmd-cache-key" "$RESP_HEADERS")
+  key=$(echo "$raw_key" | cut -d',' -f1 | tr -d ' ')
   if [ -z "$key" ]; then
     echo "  [FAIL] purge-key: could not get Nmd-Cache-Key"
     return 1

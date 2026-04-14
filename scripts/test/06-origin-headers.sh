@@ -25,7 +25,7 @@ test_origin_request_headers() {
   local encoded url body
   encoded=$(encode_url "$ORIGIN_URL")
   # debug フラグ必須 (application/json はそのままでは 422 になる)
-  url=$(proxy_url "06-headers.json" "$encoded" "debug")
+  url=$(proxy_url "06-headers.json" "$encoded" "debug=${DEBUG_KEY}")
 
   # ボディ（JSON）を取得
   body=$(curl -sf "$url")

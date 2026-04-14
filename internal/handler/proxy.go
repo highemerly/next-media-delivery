@@ -88,7 +88,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusForbidden,
 			h.deps.Cfg.Cache.ControlDeny,
 			"L1=DENY/BAD_REQ",
-			"")
+			"", v.String())
 		return
 	}
 
@@ -97,8 +97,8 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// 5. Negative cache check.
-	if negEntry, hit, err := h.deps.NegCache.Get(ctx, key); err == nil && hit {
+	// 5. Negative cache check (skipped when debug=true).
+	if negEntry, hit, err := h.deps.NegCache.Get(ctx, key); !debug && err == nil && hit {
 		xcache := negativeCacheXCache(negEntry.Status)
 		if wantFallback && h.deps.Fallback != nil {
 			// Serve fallback image without hitting the origin again.
@@ -116,7 +116,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cc, httpStatus := errorCacheControl(h.deps.Cfg, negEntry.Status)
-		response.WriteError(w, httpStatus, cc, xcache, key)
+		response.WriteError(w, httpStatus, cc, xcache, key, v.String())
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusServiceUnavailable,
 			"max-age=1800",
 			"L1=DENY/WAIT",
-			key)
+			key, v.String())
 		return
 	}
 
@@ -135,7 +135,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusForbidden,
 			h.deps.Cfg.Cache.ControlDeny,
 			"L1=DENY/BAD_DOMAIN",
-			key)
+			key, v.String())
 		return
 	}
 
@@ -231,7 +231,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.WriteError(w, http.StatusGatewayTimeout,
 				h.deps.Cfg.Cache.Control5XX,
 				xcachePrefix+", ORI=TIMEOUT",
-				key)
+				key, v.String())
 			return
 		}
 	}
@@ -360,6 +360,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
+			Variant:      v.String(),
 		})
 		return
 	}
@@ -390,6 +391,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
+			Variant:      v.String(),
 		})
 		return
 	}
@@ -407,6 +409,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
+			Variant:      v.String(),
 		})
 		return
 	}
@@ -436,6 +439,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
+			Variant:      v.String(),
 		})
 		return
 	}
@@ -448,6 +452,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 		CacheKey:     key,
 		FetchDur:     fetchDur,
 		LastModified: time.Now(),
+		Variant:      v.String(),
 	})
 }
 
