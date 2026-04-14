@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/h2non/bimg"
+	"github.com/highemerly/media-delivery/internal/format"
 	"github.com/highemerly/media-delivery/internal/variant"
 )
 
@@ -15,6 +16,10 @@ import (
 type Request struct {
 	Data    []byte
 	Variant variant.Variant
+	// Format specifies the desired output format.
+	// AVIF is supported only for emoji, avatar, and preview variants;
+	// other variants ignore this field and use their fixed output format.
+	Format  format.OutputFormat
 }
 
 // Result is the output of a conversion.
@@ -84,13 +89,13 @@ func (c *BimgConverter) Convert(ctx context.Context, req Request) (*Result, erro
 		return c.convertPNG(req.Data, 96, 96)
 
 	case variant.Emoji:
-		return c.convertWebP(req.Data, 128, 128)
+		return c.convertToFormat(req.Data, 128, 128, req.Format)
 
 	case variant.Avatar:
-		return c.convertWebP(req.Data, 320, 320)
+		return c.convertToFormat(req.Data, 320, 320, req.Format)
 
 	case variant.Preview:
-		return c.convertWebP(req.Data, 200, 200)
+		return c.convertToFormat(req.Data, 200, 200, req.Format)
 
 	case variant.Static:
 		return c.convertStatic(req.Data)
@@ -116,6 +121,37 @@ func (c *BimgConverter) convertStatic(data []byte) (*Result, error) {
 		return c.convertWebP(data, 0, 0)
 	}
 	return c.convertWebP(intermediate, 0, 0)
+}
+
+// convertToFormat dispatches to convertAVIF or convertWebP based on the requested format.
+func (c *BimgConverter) convertToFormat(data []byte, maxW, maxH int, f format.OutputFormat) (*Result, error) {
+	if f == format.AVIF {
+		return c.convertAVIF(data, maxW, maxH)
+	}
+	return c.convertWebP(data, maxW, maxH)
+}
+
+func (c *BimgConverter) convertAVIF(data []byte, maxW, maxH int) (*Result, error) {
+	opts := bimg.Options{
+		Type:    bimg.AVIF,
+		Quality: c.cfg.WebPQuality,
+	}
+
+	if maxW > 0 || maxH > 0 {
+		img := bimg.NewImage(data)
+		size, err := img.Size()
+		if err != nil {
+			return nil, fmt.Errorf("converter: get size: %w", err)
+		}
+		opts.Width, opts.Height = fitDimensions(size.Width, size.Height, maxW, maxH)
+		opts.Embed = false
+	}
+
+	out, err := bimg.NewImage(data).Process(opts)
+	if err != nil {
+		return nil, fmt.Errorf("converter: avif: %w", err)
+	}
+	return &Result{Data: out, ContentType: "image/avif"}, nil
 }
 
 func (c *BimgConverter) convertWebP(data []byte, maxW, maxH int) (*Result, error) {

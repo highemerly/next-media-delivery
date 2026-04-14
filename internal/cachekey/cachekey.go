@@ -7,9 +7,10 @@ import (
 	"fmt"
 )
 
-// Compute returns SHA256(url + "|" + variant) as a hex string.
+// Compute returns SHA256(url + "|" + variant + "|" + format) as a hex string.
 // variant must be the canonical string from variant.Variant.String().
-func Compute(rawURL, variant string) string {
-	h := sha256.Sum256([]byte(rawURL + "|" + variant))
+// format must be the canonical string from format.OutputFormat.String().
+func Compute(rawURL, variant, format string) string {
+	h := sha256.Sum256([]byte(rawURL + "|" + variant + "|" + format))
 	return fmt.Sprintf("%x", h)
 }

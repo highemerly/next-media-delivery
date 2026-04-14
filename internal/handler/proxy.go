@@ -23,6 +23,7 @@ import (
 	"github.com/highemerly/media-delivery/internal/converter"
 	"github.com/highemerly/media-delivery/internal/fallback"
 	"github.com/highemerly/media-delivery/internal/fetcher"
+	"github.com/highemerly/media-delivery/internal/format"
 	"github.com/highemerly/media-delivery/internal/response"
 	"github.com/highemerly/media-delivery/internal/store"
 	"github.com/highemerly/media-delivery/internal/variant"
@@ -76,6 +77,15 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wantFallback := parsed.WantFallback
 	debug := parsed.Debug
 
+	// Derive output format from the filename extension in the URL path.
+	// e.g. /proxy/avatar.avif → AVIF, /proxy/avatar.webp → WebP (default).
+	// AVIF is supported only for emoji, avatar, and preview; other variants fall back to WebP.
+	filename := strings.TrimPrefix(r.URL.Path, "/proxy/")
+	f := format.FromFilename(filename)
+	if f == format.AVIF && !v.SupportsAVIF() {
+		f = format.WebP
+	}
+
 	rawURL := r.URL.Query().Get("url")
 	if rawURL == "" {
 		http.Error(w, "missing url parameter", http.StatusBadRequest)
@@ -93,7 +103,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Compute cache key.
-	key := cachekey.Compute(rawURL, v.String())
+	key := cachekey.Compute(rawURL, v.String(), f.String())
 
 	ctx := r.Context()
 
@@ -208,7 +218,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// debug=true bypasses singleflight to ensure a fresh request every time.
 	var sfVal *sfResult
 	if debug {
-		val, err := h.originFetch(ctx, key, rawURL, v, domain, debug)
+		val, err := h.originFetch(ctx, key, rawURL, v, f, domain, debug)
 		if err != nil {
 			h.handleOriginError(ctx, w, key, rawURL, err, xcachePrefix, wantFallback, 0, v)
 			return
@@ -217,7 +227,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Singleflight deduplicates concurrent requests for the same key.
 		ch := h.sf.DoChan(key, func() (interface{}, error) {
-			return h.originFetch(ctx, key, rawURL, v, domain, debug)
+			return h.originFetch(ctx, key, rawURL, v, f, domain, debug)
 		})
 		select {
 		case res := <-ch:
@@ -275,7 +285,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // originFetch performs the actual fetch + convert pipeline.
 // Called inside singleflight, so it runs at most once per key per burst.
-func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v variant.Variant, domain string, debug bool) (*sfResult, error) {
+func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v variant.Variant, f format.OutputFormat, domain string, debug bool) (*sfResult, error) {
 	// Fetch.
 	t0 := time.Now()
 	result, err := h.deps.Fetcher.Fetch(ctx, rawURL)
@@ -321,7 +331,7 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 	var contentType string
 	var originFormat string
 	if v.NeedsConversion() {
-		conv, err := h.deps.Converter.Convert(ctx, converter.Request{Data: body, Variant: v})
+		conv, err := h.deps.Converter.Convert(ctx, converter.Request{Data: body, Variant: v, Format: f})
 		if err != nil {
 			slog.Error("conversion failed", "variant", v, "err", err)
 			return &sfResult{fetchDur: fetchDur, convertDur: time.Since(t1), originErr: fmt.Errorf("convert: %w", err)}, nil

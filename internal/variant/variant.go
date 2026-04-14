@@ -45,6 +45,12 @@ func (v Variant) NeedsConversion() bool {
 	return v != Raw
 }
 
+// SupportsAVIF returns true for variants that support AVIF output.
+// Only emoji, avatar, and preview are supported; badge uses PNG, static/raw are not converted to AVIF.
+func (v Variant) SupportsAVIF() bool {
+	return v == Emoji || v == Avatar || v == Preview
+}
+
 // ParseResult is the result of parsing query parameters.
 type ParseResult struct {
 	Variant      Variant

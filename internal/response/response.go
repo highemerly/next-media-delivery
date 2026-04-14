@@ -192,6 +192,8 @@ func contentDisposition(rawURL, contentType string) string {
 
 func extensionForMIME(mime string) string {
 	switch {
+	case strings.Contains(mime, "avif"):
+		return ".avif"
 	case strings.Contains(mime, "webp"):
 		return ".webp"
 	case strings.Contains(mime, "png"):

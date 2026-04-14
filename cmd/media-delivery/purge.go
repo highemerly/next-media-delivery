@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/highemerly/media-delivery/internal/cachekey"
+	"github.com/highemerly/media-delivery/internal/format"
 	"github.com/highemerly/media-delivery/internal/variant"
 )
 
@@ -35,8 +36,14 @@ func newPurgeCmd() *cobra.Command {
 			if variantStr == "" {
 				return fmt.Errorf("--variant is required (or use --all-variants / --all)")
 			}
-			key := cachekey.Compute(rawURL, variantStr)
-			return purgeKey(base, key)
+			// Purge both WebP and AVIF entries for the given variant.
+			for _, f := range []format.OutputFormat{format.WebP, format.AVIF} {
+				key := cachekey.Compute(rawURL, variantStr, f.String())
+				if err := purgeKey(base, key); err != nil {
+					fmt.Printf("skip %s/%s: %v\n", variantStr, f.String(), err)
+				}
+			}
+			return nil
 		},
 	}
 
@@ -67,10 +74,13 @@ func purgeAllVariants(base, rawURL string) error {
 		variant.Raw, variant.Emoji, variant.Avatar,
 		variant.Preview, variant.Badge, variant.Static,
 	}
+	formats := []format.OutputFormat{format.WebP, format.AVIF}
 	for _, v := range variants {
-		key := cachekey.Compute(rawURL, v.String())
-		if err := purgeKey(base, key); err != nil {
-			fmt.Printf("skip %s: %v\n", v.String(), err)
+		for _, f := range formats {
+			key := cachekey.Compute(rawURL, v.String(), f.String())
+			if err := purgeKey(base, key); err != nil {
+				fmt.Printf("skip %s/%s: %v\n", v.String(), f.String(), err)
+			}
 		}
 	}
 	return nil
