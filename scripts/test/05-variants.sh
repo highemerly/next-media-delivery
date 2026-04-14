@@ -164,7 +164,7 @@ test_format_webp() {
 test_format_avif() {
   local encoded url
   encoded=$(encode_url "${BASE_URL}/test-large.avif")
-  url=$(proxy_url "05-emoji-avif.avif" "$encoded" "emoji")
+  url=$(proxy_url "05-emoji-avif.webp" "$encoded" "emoji")
 
   get_response "$url"
   local ct; ct=$(extract_header "content-type" "$RESP_HEADERS")
