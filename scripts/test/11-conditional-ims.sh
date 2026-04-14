@@ -79,7 +79,8 @@ test_ims_on_miss() {
   local encoded url
   # Use a different origin URL that has never been cached in this test run
   encoded=$(encode_url "$ORIGIN_URL_MISS")
-  url=$(proxy_url "11c-test-image-miss.png" "$encoded" "avatar")
+  # Use "raw" variant so the cache key differs from any avatar/emoji cached in other tests
+  url=$(proxy_url "11c-test-image-miss.png" "$encoded")
 
   get_response_with_header "$url" "If-Modified-Since" "Thu, 01 Jan 2099 00:00:00 GMT"
 

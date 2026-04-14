@@ -57,7 +57,8 @@ test_debug_correct_key() {
   encoded=$(encode_url "$ORIGIN_URL")
   url=$(proxy_url "07-bad-ct-debug.json" "$encoded" "emoji" "debug=${DEBUG_KEY}")
 
-  get_response "$url"
+  # Use GET: httpbin /headers returns 405 for HEAD requests
+  get_response_get "$url"
 
   local ok=0
   local nc cc

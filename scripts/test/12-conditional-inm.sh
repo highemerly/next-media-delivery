@@ -128,7 +128,8 @@ test_etag_on_miss() {
   local encoded url
   # Use a different origin URL that has never been cached in this test run
   encoded=$(encode_url "$ORIGIN_URL_MISS")
-  url=$(proxy_url "12e-test-image-miss.png" "$encoded" "avatar")
+  # Use "raw" variant so the cache key differs from any avatar/emoji cached in other tests
+  url=$(proxy_url "12e-test-image-miss.png" "$encoded")
 
   get_response_with_header "$url" "If-None-Match" 'W/"9999999999-999999"'
 
