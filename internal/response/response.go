@@ -20,8 +20,8 @@ const (
 	headerETag              = "ETag"
 	headerXCache            = "Nmd-Cache"
 	headerXCacheKey         = "Nmd-Cache-Key"
-	headerXCacheable        = "Nmd-Cacheable"
 	headerNmdInfo           = "Nmd-Info"
+	headerNmdOriginal       = "Nmd-Original"
 	headerServerTiming      = "Server-Timing"
 	headerTimingAllowOrigin = "Timing-Allow-Origin"
 
@@ -31,8 +31,14 @@ const (
 // appVersion is set once at startup via SetVersion.
 var appVersion = "dev"
 
+// instanceID is set once at startup via SetInstance.
+var instanceID = "unknown"
+
 // SetVersion stores the build version to be emitted as Nmd-Info in every response.
 func SetVersion(v string) { appVersion = v }
+
+// SetInstance stores the instance ID to be emitted as Nmd-Info in every response.
+func SetInstance(id string) { instanceID = id }
 
 // headersToStrip are removed from the response unconditionally.
 var headersToStrip = []string{
@@ -42,20 +48,22 @@ var headersToStrip = []string{
 
 // Params holds everything needed to write a complete response.
 type Params struct {
-	StatusCode    int
-	CacheControl  string
-	ContentType   string
-	Body          []byte
-	XCache        string
-	CacheKey      string
-	FetchDur      time.Duration
-	ConvertDur    time.Duration
-	LastModified  time.Time
-	ETag          string // weak ETag value, e.g. "1738000000-102400" (without W/" wrapper)
-	OriginalURL   string // used to derive Content-Disposition filename
-	Debug         bool   // overrides Cache-Control to no-store and adds X-Cacheable: false
-	OriginalSize  int64  // size of the origin response before conversion; 0 means unknown (omitted from Nmd-Info)
-	Variant       string // request variant (e.g. "avatar", "raw"); always included in Nmd-Info
+	StatusCode     int
+	CacheControl   string
+	ContentType    string
+	Body           []byte
+	XCache         string
+	CacheKey       string
+	Cacheable      bool   // whether the response is cacheable; used in Nmd-Cache-Key c= field
+	FetchDur       time.Duration
+	ConvertDur     time.Duration
+	LastModified   time.Time
+	ETag           string // weak ETag value, e.g. "1738000000-102400" (without W/" wrapper)
+	OriginalURL    string // used to derive Content-Disposition filename
+	Debug          bool   // overrides Cache-Control to no-store
+	OriginalSize   int64  // size of the origin response before conversion; used in Nmd-Original
+	OriginalFormat string // MIME type of the origin response before conversion; used in Nmd-Original
+	Variant        string // request variant (e.g. "avatar", "raw"); included in Nmd-Info
 }
 
 // Write sets all fixed headers and writes the body.
@@ -75,13 +83,15 @@ func Write(w http.ResponseWriter, p Params) {
 	// Cache / diagnostic headers.
 	if p.Debug {
 		h.Set(headerCacheControl, "no-store")
-		h.Set(headerXCacheable, "false")
 	} else {
 		h.Set(headerCacheControl, p.CacheControl)
 	}
 	h.Set(headerXCache, p.XCache)
-	h.Set(headerXCacheKey, p.CacheKey)
-	h.Set(headerNmdInfo, nmdInfo(p.OriginalSize, p.Variant))
+	h.Set(headerXCacheKey, nmdCacheKey(p.CacheKey, p.Variant, p.Cacheable))
+	h.Set(headerNmdInfo, nmdInfo())
+	if p.OriginalSize > 0 && p.OriginalFormat != "" {
+		h.Set(headerNmdOriginal, nmdOriginal(p.OriginalSize, p.OriginalFormat))
+	}
 	h.Set(headerServerTiming, serverTiming(p.FetchDur, p.ConvertDur))
 
 	// Content headers.
@@ -113,8 +123,8 @@ func WriteNotModified(w http.ResponseWriter, p Params) {
 	h := w.Header()
 	h.Set(headerCacheControl, p.CacheControl)
 	h.Set(headerXCache, p.XCache)
-	h.Set(headerXCacheKey, p.CacheKey)
-	h.Set(headerNmdInfo, nmdInfo(p.OriginalSize, p.Variant))
+	h.Set(headerXCacheKey, nmdCacheKey(p.CacheKey, p.Variant, p.Cacheable))
+	h.Set(headerNmdInfo, nmdInfo())
 	if !p.LastModified.IsZero() {
 		h.Set(headerLastModified, p.LastModified.UTC().Format(http.TimeFormat))
 	}
@@ -141,14 +151,23 @@ func serverTiming(fetch, convert time.Duration) string {
 	return fmt.Sprintf("nmdFetch;dur=%d, nmdConvert;dur=%d", fetchMS, convertMS)
 }
 
-// nmdInfo builds the Nmd-Info header value.
-// originalSize=0 means unknown (e.g. L1 HIT) and is omitted.
-func nmdInfo(originalSize int64, variant string) string {
-	s := fmt.Sprintf("ver=%s, variant=%s", appVersion, variant)
-	if originalSize > 0 {
-		s += fmt.Sprintf(", originalSize=%d", originalSize)
+// nmdCacheKey builds the Nmd-Cache-Key header value.
+func nmdCacheKey(key, variant string, cacheable bool) string {
+	c := "n"
+	if cacheable {
+		c = "y"
 	}
-	return s
+	return fmt.Sprintf("%s, v=%s, c=%s", key, variant, c)
+}
+
+// nmdInfo builds the Nmd-Info header value.
+func nmdInfo() string {
+	return fmt.Sprintf("NextMediaDelivery/%s, %s", appVersion, instanceID)
+}
+
+// nmdOriginal builds the Nmd-Original header value.
+func nmdOriginal(originalSize int64, originalFormat string) string {
+	return fmt.Sprintf("s=%d, f=%s", originalSize, originalFormat)
 }
 
 // contentDisposition derives a Content-Disposition filename from the origin URL.

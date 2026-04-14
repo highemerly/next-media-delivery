@@ -31,16 +31,17 @@ import (
 // sfResult is the value shared among singleflight waiters.
 // On origin error, data/contentType are empty and originErr is set.
 type sfResult struct {
-	data        []byte
-	contentType string
-	fetchDur    time.Duration
-	convertDur  time.Duration
-	originErr   error // non-nil when origin returned an error
+	data           []byte
+	contentType    string
+	fetchDur       time.Duration
+	convertDur     time.Duration
+	originErr      error // non-nil when origin returned an error
 	// skipCache instructs the caller not to write to L1/L2/AccessTracker.
 	// Used when the response should not be cached (e.g. bad Content-Type).
 	// Add new conditions here as needed.
-	skipCache  bool
-	originSize int64 // raw fetch size before conversion; 0 if unknown
+	skipCache      bool
+	originSize     int64  // raw fetch size before conversion; 0 if unknown
+	originFormat   string // MIME type of origin response before conversion; non-empty only when conversion occurred
 }
 
 // Deps holds all dependencies for the proxy handler.
@@ -93,9 +94,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Compute cache key.
 	key := cachekey.Compute(rawURL, v.String())
-
-	// 4. Set Nmd-Cache-Key immediately (always present).
-	w.Header().Set("Nmd-Cache-Key", key)
 
 	ctx := r.Context()
 
@@ -154,6 +152,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					CacheControl: h.deps.Cfg.Cache.ControlSuccess,
 					XCache:       "L1=HIT",
 					CacheKey:     key,
+					Cacheable:    true,
 					LastModified: entry.StoredAt,
 					ETag:         etag,
 					Variant:      v.String(),
@@ -167,6 +166,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Body:         entry.Body,
 				XCache:       "L1=HIT",
 				CacheKey:     key,
+				Cacheable:    true,
 				LastModified: entry.StoredAt,
 				ETag:         etag,
 				OriginalURL:  rawURL,
@@ -192,10 +192,10 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						Body:         body,
 						XCache:       "L1=MISS, L2=HIT",
 						CacheKey:     key,
+						Cacheable:    true,
 						LastModified: obj.StoredAt,
 						OriginalURL:  rawURL,
 						Variant:      v.String(),
-						OriginalSize: obj.Size,
 					})
 					return
 				}
@@ -254,20 +254,22 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	xcache := xcachePrefix + ", ORI=200"
 	now := time.Now()
 	response.Write(w, response.Params{
-		StatusCode:   http.StatusOK,
-		CacheControl: h.deps.Cfg.Cache.ControlSuccess,
-		ContentType:  sfVal.contentType,
-		Body:         sfVal.data,
-		XCache:       xcache,
-		CacheKey:     key,
-		FetchDur:     sfVal.fetchDur,
-		ConvertDur:   sfVal.convertDur,
-		LastModified: now,
-		ETag:         weakETag(now, int64(len(sfVal.data))),
-		OriginalURL:  rawURL,
-		Debug:        debug,
-		Variant:      v.String(),
-		OriginalSize: sfVal.originSize,
+		StatusCode:     http.StatusOK,
+		CacheControl:   h.deps.Cfg.Cache.ControlSuccess,
+		ContentType:    sfVal.contentType,
+		Body:           sfVal.data,
+		XCache:         xcache,
+		CacheKey:       key,
+		Cacheable:      !sfVal.skipCache,
+		FetchDur:       sfVal.fetchDur,
+		ConvertDur:     sfVal.convertDur,
+		LastModified:   now,
+		ETag:           weakETag(now, int64(len(sfVal.data))),
+		OriginalURL:    rawURL,
+		Debug:          debug,
+		Variant:        v.String(),
+		OriginalSize:   sfVal.originSize,
+		OriginalFormat: sfVal.originFormat,
 	})
 }
 
@@ -317,6 +319,7 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 	t1 := time.Now()
 	var data []byte
 	var contentType string
+	var originFormat string
 	if v.NeedsConversion() {
 		conv, err := h.deps.Converter.Convert(ctx, converter.Request{Data: body, Variant: v})
 		if err != nil {
@@ -325,6 +328,7 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 		}
 		data = conv.Data
 		contentType = conv.ContentType
+		originFormat = result.ContentType
 	} else {
 		data = body
 		contentType = result.ContentType
@@ -335,12 +339,13 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 	convertDur := time.Since(t1)
 
 	return &sfResult{
-		data:        data,
-		contentType: contentType,
-		fetchDur:    fetchDur,
-		convertDur:  convertDur,
-		skipCache:   debug,
-		originSize:  result.Size,
+		data:         data,
+		contentType:  contentType,
+		fetchDur:     fetchDur,
+		convertDur:   convertDur,
+		skipCache:    debug,
+		originSize:   result.Size,
+		originFormat: originFormat,
 	}, nil
 }
 

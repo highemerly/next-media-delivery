@@ -5,12 +5,14 @@
 #   HTTP status    : 200
 #   Nmd-Cache      : L1=MISS, ORI=ERR, L1=FALLBACK
 #   Cache-Control  : max-age=86400
+#   Nmd-Cache-Key  : <sha256>, v=avatar, c=n  (fallback は非キャッシュ)
 #   Server-Timing  : nmdFetch;dur>=1
 #
 # 03b — WITHOUT ?fallback: origin 404 propagated as-is
 #   HTTP status    : 404
 #   Nmd-Cache      : L1=MISS, ORI=ERR
 #   Cache-Control  : max-age=3600
+#   Nmd-Cache-Key  : <sha256>, v=avatar, c=n  (エラーは非キャッシュ)
 #   Server-Timing  : nmdFetch;dur>=1
 source "$(dirname "$0")/lib.sh"
 
@@ -26,18 +28,21 @@ test_fallback_with_flag() {
   get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
-  local ct nc cc st
+  local ct nc cc st ck
 
   ct=$(extract_header "content-type"  "$RESP_HEADERS")
   nc=$(extract_header "nmd-cache"     "$RESP_HEADERS")
   cc=$(extract_header "cache-control" "$RESP_HEADERS")
   st=$(extract_header "server-timing" "$RESP_HEADERS")
+  ck=$(extract_header "nmd-cache-key" "$RESP_HEADERS")
 
   assert_http_status "200"                        "$RESP_STATUS" "HTTP status"          || ok=1
   assert_match       "^image/"                    "$ct"          "Content-Type"         || ok=1
-  assert_eq          "L1=MISS, ORI, L1=FALLBACK" "$nc"          "Nmd-Cache"            || ok=1
+  assert_eq          "L1=MISS, ORI=ERR, L1=FALLBACK" "$nc"      "Nmd-Cache"            || ok=1
   assert_eq          "max-age=86400"              "$cc"          "Cache-Control"        || ok=1
   assert_server_timing_fetch_ge1                  "$st"          "Server-Timing fetch"  || ok=1
+  assert_match       "^[0-9a-f]{64}, v=avatar, c=n$" "$ck"      "Nmd-Cache-Key c=n (fallback not cached)" || ok=1
+  assert_header_absent "nmd-original"             "$RESP_HEADERS" "Nmd-Original absent (fallback)" || ok=1
 
   return $ok
 }
@@ -50,16 +55,19 @@ test_no_fallback_404() {
   get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
-  local nc cc st
+  local nc cc st ck
 
   nc=$(extract_header "nmd-cache"     "$RESP_HEADERS")
   cc=$(extract_header "cache-control" "$RESP_HEADERS")
   st=$(extract_header "server-timing" "$RESP_HEADERS")
+  ck=$(extract_header "nmd-cache-key" "$RESP_HEADERS")
 
   assert_http_status "404"           "$RESP_STATUS" "HTTP status"          || ok=1
-  assert_eq          "L1=MISS, ORI" "$nc"           "Nmd-Cache"            || ok=1
+  assert_eq          "L1=MISS, ORI=ERR" "$nc"        "Nmd-Cache"            || ok=1
   assert_eq          "max-age=3600" "$cc"            "Cache-Control"        || ok=1
   assert_server_timing_fetch_ge1    "$st"            "Server-Timing fetch"  || ok=1
+  assert_match       "^[0-9a-f]{64}, v=avatar, c=n$" "$ck" "Nmd-Cache-Key c=n (error)" || ok=1
+  assert_header_absent "nmd-original" "$RESP_HEADERS" "Nmd-Original absent (error)" || ok=1
 
   return $ok
 }

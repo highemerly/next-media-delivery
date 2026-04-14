@@ -45,6 +45,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	response.SetVersion(version)
+	if id := os.Getenv("NMD_INSTANCE_ID"); id != "" {
+		response.SetInstance(id)
+	}
 	setupLogger(cfg.Log.Level)
 
 	// L1 disk cache.
@@ -72,6 +75,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		MaxFileSize:         cfg.Fetch.MaxFileSize,
 		AllowedPrivateCIDRs: cfg.Security.AllowedPrivateCIDRs,
 		CDNName:             cfg.Server.CDNName,
+		Version:             version,
 	})
 
 	// Image converter (libvips).

@@ -12,7 +12,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux go build -o /out/media-delivery ./cmd/media-delivery
+ARG VERSION=dev
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -ldflags "-X main.version=${VERSION}" \
+    -o /out/media-delivery ./cmd/media-delivery
 
 # ---- runtime stage ----
 FROM debian:bookworm-slim

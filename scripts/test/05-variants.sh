@@ -37,7 +37,7 @@ test_avatar() {
   local ok=0
   assert_http_status "200"                         "$RESP_STATUS" "HTTP status"    || ok=1
   assert_match       "^image/webp"                 "$ct"          "Content-Type"   || ok=1
-  assert_eq          "L1=MISS, ORI"               "$nc"          "Nmd-Cache"      || ok=1
+  assert_eq          "L1=MISS, ORI=200"            "$nc"          "Nmd-Cache"      || ok=1
   assert_eq          "max-age=31536000, immutable" "$cc"          "Cache-Control"  || ok=1
 
   body_file=$(mktemp).webp

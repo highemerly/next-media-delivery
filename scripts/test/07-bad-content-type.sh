@@ -28,7 +28,7 @@ test_bad_content_type() {
   cc=$(extract_header "cache-control" "$RESP_HEADERS")
 
   assert_http_status "422"                                  "$RESP_STATUS" "HTTP status"   || ok=1
-  assert_eq          "L1=MISS, ORI, L1=DENY/BAD_CONTENT"  "$nc"          "Nmd-Cache"     || ok=1
+  assert_eq          "L1=MISS, ORI=200, L1=DENY/BAD_CONTENT"  "$nc"      "Nmd-Cache"     || ok=1
   assert_eq          "max-age=86400"                        "$cc"          "Cache-Control" || ok=1
 
   return $ok

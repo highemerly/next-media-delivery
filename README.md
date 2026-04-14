@@ -24,7 +24,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `preview=1` | プレビュー用縮小 | 200×200以下 WebP | ✅ |
 | `badge=1` | Webプッシュ通知バッジ | 96×96 PNG | ✅ |
 | `fallback` | エラー時にダミー画像を200で返す | variant に応じた画像 | ✅ |
-| `debug` | オリジンの Content-Type チェックをスキップし画像以外も通す。キャッシュは行わない。`Cache-Control: no-store` / `Nmd-Cacheable: false` を返す | — | ❌ 独自拡張 |
+| `debug` | オリジンの Content-Type チェックをスキップし画像以外も通す。キャッシュは行わない。`Cache-Control: no-store` を返す | — | ❌ 独自拡張 |
 
 レスポンスヘッダー:
 
@@ -41,8 +41,10 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `If-None-Match`（リクエスト） | — | L1 HIT 時のみ評価。送られた ETag が一致すれば 304 Not Modified を返す。L1 MISS・Origin fetch 時は無視して常に 200 を返す。`If-None-Match` が存在する場合は `If-Modified-Since` を無視する（RFC 9110 §13.1.3）。 |
 | `Age` | 削除 | オリジンの Age はプロキシ再配信時点で意味をなさない |
 | `Set-Cookie` / `Server` / `X-Powered-By` / `HSTS` 等 | 削除 | オリジンのセキュリティポリシー・情報を引き継がない |
-| `Nmd-Cache-Key` | SHA256ハッシュ | デバッグ用。常に出力。purge CLI との連携用 |
 | `Nmd-Cache` | キャッシュヒット有無、エラー内容による（下記参照） | デバッグ用。常に出力。キャッシュ状況の確認用 |
+| `Nmd-Cache-Key` | `<SHA256>, v=<variant>, c=<y\|n>` | デバッグ用。常に出力。purge CLI との連携用。`c=y` はキャッシュ可能、`c=n` は不可 |
+| `Nmd-Info` | `NextMediaDelivery/<version>, <instance>` | デバッグ用。常に出力。バージョンとインスタンス識別子（`NMD_INSTANCE_ID` 環境変数。未設定時は `unknown`） |
+| `Nmd-Original` | `s=<size>, f=<MIME>` | オリジンフェッチかつ変換が発生した場合のみ出力。変換前のオリジン画像サイズ（バイト）とMIMEタイプ |
 | `Server-Timing` | `nmdFetch;dur=143, nmdConvert;dur=28` | デバッグ用。フェッチ時間・変換時間（ms）。L1ヒット時は両方0 |
 | `Timing-Allow-Origin` | `*` | デバッグ用。クロスオリジンでも Server-Timing を参照可能にする |
 
@@ -131,8 +133,7 @@ GET /proxy/{filename}?url=...&avatar=1
   1.  クエリパース   → Variant（emoji/avatar/preview/badge/static/raw）+ wantFallback + debug フラグ
   2.  スキーム検証   → http/https 以外は即 403
   3.  キャッシュキー → SHA256(url + "|" + variant)
-  4.  Nmd-Cache-Key ヘッダをセット（常に出力。値はキャッシュキーの SHA-256）
-  5.  NegativeCache  → HIT: Nmd-Cache="L1=HIT/NEGATIVE4XX|5XX"、404/503 を返す
+  4.  NegativeCache  → HIT: Nmd-Cache="L1=HIT/NEGATIVE4XX|5XX"、404/503 を返す
   6.  CircuitBreaker → DENY: Nmd-Cache="L1=DENY/WAIT"、503 を返す
   7.  Blacklist      → DENY: Nmd-Cache="L1=DENY/BAD_DOMAIN"、403 を返す
   8.  L1 lookup      → HIT: Nmd-Cache="L1=HIT"、AccessTracker 更新（非同期）
@@ -516,6 +517,7 @@ Negative Cache (142 entries):
 | `CIRCUIT_BREAKER_ENABLED` | `true` | Circuit Breaker の有効/無効 |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | 連続失敗回数で OPEN にする閾値 |
 | `CIRCUIT_BREAKER_TIMEOUT` | `5m` | OPEN 継続時間 |
+| `NMD_INSTANCE_ID` | — | `Nmd-Info` ヘッダの `instance` フィールドに付与するインスタンス識別子（未設定時は `unknown`） |
 
 ## k8s マニフェスト構成（概要）
 
@@ -584,7 +586,7 @@ HTML エラーページや意図しないリソースを配信・キャッシュ
 
 - Negative Cache には記録しない（オリジンのエラーではなくプロキシ側の判断）
 - `?debug` クエリパラメータを付与するとチェックをスキップし、そのまま応答する（Misskey互換外の独自拡張）
-- `debug` はContent-Typeチェックのバイパスに加え、L1/L2キャッシュの読み書きを行わない（originへ必ずフェッチする）。レスポンスには `Cache-Control: no-store` と `Nmd-Cacheable: false` を付与する
+- `debug` はContent-Typeチェックのバイパスに加え、L1/L2キャッシュの読み書きを行わない（originへ必ずフェッチする）。レスポンスには `Cache-Control: no-store` を付与する
 
 ### SSRF・不正ドメイン対策
 

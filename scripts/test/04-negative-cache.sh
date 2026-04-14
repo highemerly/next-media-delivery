@@ -3,7 +3,7 @@
 #
 # 04a — 1st request (origin fetch):
 #   HTTP status    : 404
-#   Nmd-Cache      : L1=MISS, ORI=ERR
+#   Nmd-Cache      : L1=MISS, ORI=ERR  (origin returned 4xx)
 #   Cache-Control  : max-age=3600
 #   Server-Timing  : nmdFetch;dur >= 1  (origin contacted)
 #
@@ -31,10 +31,10 @@ test_negative_cache_first_request() {
   cc=$(extract_header "cache-control" "$RESP_HEADERS")
   st=$(extract_header "server-timing" "$RESP_HEADERS")
 
-  assert_http_status "404"           "$RESP_STATUS" "HTTP status (origin 404)"    || ok=1
-  assert_eq          "L1=MISS, ORI"  "$nc"          "Nmd-Cache"                   || ok=1
-  assert_eq          "max-age=3600"  "$cc"          "Cache-Control"               || ok=1
-  assert_server_timing_fetch_ge1     "$st"          "Server-Timing fetch"         || ok=1
+  assert_http_status "404"              "$RESP_STATUS" "HTTP status (origin 404)"    || ok=1
+  assert_eq          "L1=MISS, ORI=ERR" "$nc"        "Nmd-Cache"                   || ok=1
+  assert_eq          "max-age=3600"  "$cc"            "Cache-Control"               || ok=1
+  assert_server_timing_fetch_ge1     "$st"            "Server-Timing fetch"         || ok=1
 
   return $ok
 }

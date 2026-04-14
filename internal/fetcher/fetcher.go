@@ -14,7 +14,7 @@ import (
 // ErrFileTooLarge is returned when the response body exceeds MaxFileSize.
 var ErrFileTooLarge = errors.New("file too large")
 
-const userAgentBase = "NextMediaDelivery/1.0 (+https://github.com/highemerly/media-delivery; misskey compatible media proxy)"
+const userAgentTemplate = "NextMediaDelivery/%s (+https://github.com/highemerly/media-delivery; misskey compatible media proxy)"
 
 // Result holds a successfully fetched response.
 type Result struct {
@@ -36,6 +36,7 @@ type Config struct {
 	MaxFileSize         int64
 	AllowedPrivateCIDRs []string // empty = block all private
 	CDNName             string   // used for outbound CDN-Loop header (RFC 8586)
+	Version             string   // app version embedded in User-Agent; defaults to "dev"
 }
 
 // HTTPFetcher is a production Fetcher with redirect limit and SSRF guard.
@@ -65,9 +66,13 @@ func New(cfg Config) *HTTPFetcher {
 			return nil
 		},
 	}
-	ua := userAgentBase
+	ver := cfg.Version
+	if ver == "" {
+		ver = "dev"
+	}
+	ua := fmt.Sprintf(userAgentTemplate, ver)
 	if cfg.CDNName != "" {
-		ua = userAgentBase[:len(userAgentBase)-1] + "; instance=" + cfg.CDNName + ")"
+		ua = ua[:len(ua)-1] + "; instance=" + cfg.CDNName + ")"
 	}
 	return &HTTPFetcher{client: client, maxFileSize: cfg.MaxFileSize, cdnName: cfg.CDNName, userAgent: ua}
 }

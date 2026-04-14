@@ -27,17 +27,20 @@ test_cache_hit() {
   get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
-  local nc cc st lm
+  local nc cc st lm ck
 
   nc=$(extract_header "nmd-cache"     "$RESP_HEADERS")
   cc=$(extract_header "cache-control" "$RESP_HEADERS")
   st=$(extract_header "server-timing" "$RESP_HEADERS")
   lm=$(extract_header "last-modified" "$RESP_HEADERS")
+  ck=$(extract_header "nmd-cache-key" "$RESP_HEADERS")
 
   assert_eq    "L1=HIT"                       "$nc" "Nmd-Cache"           || ok=1
   assert_eq    "max-age=31536000, immutable"   "$cc" "Cache-Control"       || ok=1
   assert_server_timing_fetch_zero              "$st" "Server-Timing fetch" || ok=1
   assert_last_modified_not_after "$before_epoch" "$lm" "Last-Modified <= cache-write time" || ok=1
+  assert_match "^[0-9a-f]{64}, v=avatar, c=y$" "$ck" "Nmd-Cache-Key"      || ok=1
+  assert_header_absent "nmd-original"          "$RESP_HEADERS" "Nmd-Original absent on L1 HIT" || ok=1
 
   return $ok
 }

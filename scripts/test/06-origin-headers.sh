@@ -16,7 +16,8 @@ HTTPBIN_BASE="${HTTPBIN_BASE:-http://httpbin}"
 ORIGIN_URL="${HTTPBIN_BASE}/headers"
 # CDN_NAME は起動時の環境変数に合わせる（未設定時は localhost）
 CDN_NAME="${CDN_NAME:-localhost}"
-EXPECTED_UA="NextMediaDelivery/1.0 (+https://github.com/highemerly/media-delivery; misskey compatible media proxy; instance=${CDN_NAME})"
+# バージョンはビルド時に埋め込まれるため正規表現で検証する
+EXPECTED_UA_PATTERN="^NextMediaDelivery/[^ ]+ \(\+https://github\.com/highemerly/media-delivery; misskey compatible media proxy; instance=${CDN_NAME}\)$"
 EXPECTED_ACCEPT="image/*, video/*, audio/*, */*;q=0.8"
 EXPECTED_CDN_LOOP="${CDN_NAME}; v=1.0"
 
@@ -57,7 +58,7 @@ print(headers.get('$key', ''))
   actual_referer=$(extract_json_header "referer")
 
   # 1. User-Agent
-  assert_eq "$EXPECTED_UA"      "$actual_ua"       "User-Agent"         || ok=1
+  assert_match "$EXPECTED_UA_PATTERN" "$actual_ua" "User-Agent"         || ok=1
   # 2. Accept
   assert_eq "$EXPECTED_ACCEPT"  "$actual_accept"   "Accept"             || ok=1
   # 3. 送信されないべきヘッダ
