@@ -8,13 +8,11 @@ import (
 	"github.com/highemerly/media-delivery/internal/store"
 )
 
-// contextWithCancel returns a background context.
-// Cancellation is handled by the server's graceful shutdown; goroutines
-// that need early exit should select on ctx.Done().
-func contextWithCancel() context.Context {
-	// We use context.Background() here; the goroutines will be cancelled
-	// when the process exits after srv.Run() returns.
-	return context.Background()
+// contextWithCancel returns a context and cancel function for background
+// goroutines. The caller must call cancel() after srv.Run() returns so that
+// all background goroutines exit cleanly before the process terminates.
+func contextWithCancel() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
 }
 
 func runNegCacheGC(ctx context.Context, negCache store.NegativeCache) {

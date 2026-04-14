@@ -47,17 +47,21 @@ type sfResult struct {
 
 // Deps holds all dependencies for the proxy handler.
 type Deps struct {
-	L1        *l1.Cache
-	L2        l2.Store
-	Tracker   store.AccessTracker
-	NegCache  store.NegativeCache
-	Circuit   store.CircuitBreaker
-	Fetcher   fetcher.Fetcher
-	Converter converter.Converter
-	Fallback  *fallback.Store
-	Blacklist *blacklist.Blacklist
-	WG        *sync.WaitGroup
-	Cfg       *config.Config
+	L1          *l1.Cache
+	L2          l2.Store
+	Tracker     store.AccessTracker
+	NegCache    store.NegativeCache
+	Circuit     store.CircuitBreaker
+	Fetcher     fetcher.Fetcher
+	Converter   converter.Converter
+	Fallback    *fallback.Store
+	Blacklist   *blacklist.Blacklist
+	WG          *sync.WaitGroup
+	Cfg         *config.Config
+	// ShutdownCtx is cancelled when the server begins graceful shutdown.
+	// Async goroutines (L2 writes, tracker updates) use it so they are
+	// interrupted cleanly instead of running against context.Background().
+	ShutdownCtx context.Context
 }
 
 // ProxyHandler is the main HTTP handler for /proxy/{filename}.
@@ -496,7 +500,7 @@ func (h *ProxyHandler) asyncL2Put(key string, data []byte, contentType string) {
 	h.deps.WG.Add(1)
 	go func() {
 		defer h.deps.WG.Done()
-		if err := h.deps.L2.Put(context.Background(), key, readerFrom(data), contentType, int64(len(data))); err != nil {
+		if err := h.deps.L2.Put(h.deps.ShutdownCtx, key, readerFrom(data), contentType, int64(len(data))); err != nil {
 			slog.Warn("l2 write failed", "key", key, "err", err)
 		}
 	}()
@@ -506,7 +510,7 @@ func (h *ProxyHandler) asyncTrackerSet(key string) {
 	h.deps.WG.Add(1)
 	go func() {
 		defer h.deps.WG.Done()
-		if err := h.deps.Tracker.Set(context.Background(), key, time.Now()); err != nil {
+		if err := h.deps.Tracker.Set(h.deps.ShutdownCtx, key, time.Now()); err != nil {
 			slog.Error("tracker set failed", "key", key, "err", err)
 		}
 	}()

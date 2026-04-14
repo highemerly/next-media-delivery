@@ -109,18 +109,24 @@ func runServe(_ *cobra.Command, _ []string) error {
 		cfg.Fallback.Default,
 	)
 
+	// cancelBg is called after srv.Run() returns (i.e. after SIGTERM/SIGINT)
+	// so that all background goroutines exit cleanly before the process ends.
+	ctx, cancelBg := contextWithCancel()
+	defer cancelBg()
+
 	deps := handler.Deps{
-		L1:        l1Cache,
-		L2:        l2Store,
-		Tracker:   tracker,
-		NegCache:  negCache,
-		Circuit:   circuit,
-		Fetcher:   fetch,
-		Converter: conv,
-		Fallback:  fb,
-		Blacklist: bl,
-		WG:        srv.WaitGroup(),
-		Cfg:       cfg,
+		L1:          l1Cache,
+		L2:          l2Store,
+		Tracker:     tracker,
+		NegCache:    negCache,
+		Circuit:     circuit,
+		Fetcher:     fetch,
+		Converter:   conv,
+		Fallback:    fb,
+		Blacklist:   bl,
+		WG:          srv.WaitGroup(),
+		Cfg:         cfg,
+		ShutdownCtx: ctx,
 	}
 
 	// Proxy mux.
@@ -152,7 +158,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 	srv.SetHandlers(proxyMux, adminMux)
 
 	// Start background goroutines.
-	ctx := contextWithCancel()
 	go l1.NewCleaner(l1Cache, tracker,
 		cfg.Cache.MaxBytes, cfg.Cache.TargetBytes,
 		5*time.Minute,
