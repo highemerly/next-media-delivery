@@ -84,6 +84,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 		WebPQuality:    cfg.Convert.WebPQuality,
 		PNGCompression: cfg.Convert.PNGCompression,
 		AnimQuality:    cfg.Convert.AnimQuality,
+		AVIFQuality:    cfg.Convert.AVIFQuality,
+		AVIFSpeed:      cfg.Convert.AVIFSpeed,
 	})
 	defer converter.Shutdown()
 

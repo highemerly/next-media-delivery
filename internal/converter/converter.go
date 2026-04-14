@@ -39,6 +39,8 @@ type Config struct {
 	WebPQuality    int
 	PNGCompression int
 	AnimQuality    int
+	AVIFQuality    int
+	AVIFSpeed      int
 }
 
 // BimgConverter uses libvips via bimg for image processing.
@@ -134,7 +136,8 @@ func (c *BimgConverter) convertToFormat(data []byte, maxW, maxH int, f format.Ou
 func (c *BimgConverter) convertAVIF(data []byte, maxW, maxH int) (*Result, error) {
 	opts := bimg.Options{
 		Type:    bimg.AVIF,
-		Quality: c.cfg.WebPQuality,
+		Quality: c.cfg.AVIFQuality,
+		Speed:   c.cfg.AVIFSpeed,
 	}
 
 	if maxW > 0 || maxH > 0 {

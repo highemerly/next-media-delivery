@@ -516,6 +516,8 @@ Negative Cache (142 entries):
 | `CONVERT_WEBP_QUALITY` | `80` | WebP出力品質（1-100） |
 | `CONVERT_PNG_COMPRESSION` | `6` | PNG圧縮レベル（0-9） |
 | `CONVERT_ANIM_QUALITY` | `75` | アニメーションWebP出力品質（1-100） |
+| `CONVERT_AVIF_QUALITY` | `60` | AVIF出力品質（1-100） |
+| `CONVERT_AVIF_SPEED` | `6` | AVIFエンコード速度（0-8、高いほど速い・低圧縮） |
 | `NEGATIVE_CACHE_TTL_40X` | `24h` | 40x の Negative Cache TTL |
 | `NEGATIVE_CACHE_TTL_5XX` | `5m` | 5xx の Negative Cache TTL |
 | `LOG_LEVEL` | `INFO` | ログレベル（`DEBUG` / `INFO` / `WARN` / `ERROR`） |
