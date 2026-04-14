@@ -158,6 +158,17 @@ print(int(parsedate_to_datetime(sys.argv[1]).timestamp()))
   fi
 }
 
+# get_response_with_header <url> <header_name> <header_value>
+# Like get_response but sends an additional request header.
+# Stores results in: RESP_STATUS, RESP_HEADERS
+get_response_with_header() {
+  local url="$1" header_name="$2" header_value="$3" tmpfile
+  tmpfile=$(mktemp)
+  RESP_STATUS=$(curl -sI -H "${header_name}: ${header_value}" -o "$tmpfile" -w "%{http_code}" "$url")
+  RESP_HEADERS=$(tr -d '\r' < "$tmpfile")
+  rm -f "$tmpfile"
+}
+
 # get_image_body <url>
 # Downloads the response body to a temp file.
 # Sets RESP_BODY_FILE (caller must rm after use).

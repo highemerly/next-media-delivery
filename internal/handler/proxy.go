@@ -143,6 +143,15 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !debug {
 		if entry, err := h.deps.L1.Get(key); err == nil && entry != nil {
 			h.asyncTrackerSet(key)
+			if checkNotModified(r, entry.StoredAt) {
+				response.WriteNotModified(w, response.Params{
+					CacheControl: h.deps.Cfg.Cache.ControlSuccess,
+					XCache:       "L1=HIT",
+					CacheKey:     key,
+					LastModified: entry.StoredAt,
+				})
+				return
+			}
 			response.Write(w, response.Params{
 				StatusCode:   http.StatusOK,
 				CacheControl: h.deps.Cfg.Cache.ControlSuccess,
@@ -549,6 +558,22 @@ func negativeCacheXCache(status int) string {
 
 type bytesReader struct{ data []byte; pos int }
 func readerFrom(data []byte) io.Reader { return &bytesReader{data: data} }
+
+// checkNotModified returns true when the client's If-Modified-Since value is
+// >= lastModified, meaning the cached content has not changed since the client
+// last fetched it and a 304 Not Modified response should be returned.
+// HTTP dates have second precision, so lastModified is truncated before comparison.
+func checkNotModified(r *http.Request, lastModified time.Time) bool {
+	ims := r.Header.Get("If-Modified-Since")
+	if ims == "" {
+		return false
+	}
+	t, err := http.ParseTime(ims)
+	if err != nil {
+		return false
+	}
+	return !lastModified.Truncate(time.Second).After(t)
+}
 func (r *bytesReader) Read(p []byte) (int, error) {
 	if r.pos >= len(r.data) { return 0, io.EOF }
 	n := copy(p, r.data[r.pos:])

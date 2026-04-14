@@ -97,6 +97,20 @@ func Write(w http.ResponseWriter, p Params) {
 	}
 }
 
+// WriteNotModified writes a 304 Not Modified response.
+// Per RFC 7232 the body must be empty; only cache/diagnostic headers are set.
+func WriteNotModified(w http.ResponseWriter, p Params) {
+	h := w.Header()
+	h.Set(headerCacheControl, p.CacheControl)
+	h.Set(headerXCache, p.XCache)
+	h.Set(headerXCacheKey, p.CacheKey)
+	h.Set(headerNmdVersion, appVersion)
+	if !p.LastModified.IsZero() {
+		h.Set(headerLastModified, p.LastModified.UTC().Format(http.TimeFormat))
+	}
+	w.WriteHeader(http.StatusNotModified)
+}
+
 // WriteError writes an error response with appropriate headers.
 func WriteError(w http.ResponseWriter, statusCode int, cacheControl, xcache, cacheKey string) {
 	Write(w, Params{
