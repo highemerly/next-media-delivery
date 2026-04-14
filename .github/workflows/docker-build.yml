@@ -32,6 +32,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install libvips
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev
+
       - name: Unit tests
         run: go test ./...
 
