@@ -34,14 +34,15 @@ type AdminConfig struct {
 }
 
 type CacheConfig struct {
-	Dir            string
-	MaxBytes       int64
-	TargetBytes    int64
-	ControlSuccess  string
-	Control4XX      string
-	Control5XX      string
-	ControlFailover string
-	ControlDeny     string
+	Dir              string
+	MaxBytes         int64
+	TargetBytes      int64
+	ControlSuccess   string
+	Control4XX       string
+	Control5XX       string
+	ControlFailover  string
+	ControlDeny      string
+	AsyncWriteTimeout time.Duration
 }
 
 type S3Config struct {
@@ -126,6 +127,7 @@ func Load() (*Config, error) {
 	cfg.Cache.Control5XX = getEnv("CACHE_CONTROL_5XXERROR", "max-age=120, must-revalidate")
 	cfg.Cache.ControlFailover = getEnv("CACHE_CONTROL_FAILOVER", "max-age=86400")
 	cfg.Cache.ControlDeny = getEnv("CACHE_CONTROL_DENY", "max-age=86400")
+	cfg.Cache.AsyncWriteTimeout = getEnvDuration("ASYNC_WRITE_TIMEOUT", 30*time.Second)
 
 	cfg.S3.Enabled = getEnvBool("S3_ENABLED", false)
 	cfg.S3.Endpoint = os.Getenv("S3_ENDPOINT")

@@ -486,10 +486,25 @@ func (h *ProxyHandler) addNegativeCache(ctx context.Context, key string, status 
 	}
 }
 
+// asyncWriteCtx returns a context for async write operations: it inherits
+// ShutdownCtx (so writes are cancelled on shutdown) and adds a timeout so a
+// slow L1/L2/Tracker never blocks the WaitGroup indefinitely.
+func (h *ProxyHandler) asyncWriteCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(h.deps.ShutdownCtx, h.deps.Cfg.Cache.AsyncWriteTimeout)
+}
+
 func (h *ProxyHandler) asyncL1Put(key string, data []byte, contentType string) {
 	h.deps.WG.Add(1)
 	go func() {
 		defer h.deps.WG.Done()
+		ctx, cancel := h.asyncWriteCtx()
+		defer cancel()
+		// L1.Put is a synchronous disk write and does not accept a context,
+		// so AsyncWriteTimeout cannot interrupt it mid-write. The timeout is
+		// still meaningful at the server level: server.go's WaitGroup wait is
+		// bounded by shutdownTimeout, so a hung L1 write will not block the
+		// process indefinitely at shutdown.
+		_ = ctx
 		if err := h.deps.L1.Put(key, data, contentType); err != nil {
 			slog.Error("l1 write failed", "key", key, "err", err)
 		}
@@ -500,7 +515,9 @@ func (h *ProxyHandler) asyncL2Put(key string, data []byte, contentType string) {
 	h.deps.WG.Add(1)
 	go func() {
 		defer h.deps.WG.Done()
-		if err := h.deps.L2.Put(h.deps.ShutdownCtx, key, readerFrom(data), contentType, int64(len(data))); err != nil {
+		ctx, cancel := h.asyncWriteCtx()
+		defer cancel()
+		if err := h.deps.L2.Put(ctx, key, readerFrom(data), contentType, int64(len(data))); err != nil {
 			slog.Warn("l2 write failed", "key", key, "err", err)
 		}
 	}()
@@ -510,7 +527,9 @@ func (h *ProxyHandler) asyncTrackerSet(key string) {
 	h.deps.WG.Add(1)
 	go func() {
 		defer h.deps.WG.Done()
-		if err := h.deps.Tracker.Set(h.deps.ShutdownCtx, key, time.Now()); err != nil {
+		ctx, cancel := h.asyncWriteCtx()
+		defer cancel()
+		if err := h.deps.Tracker.Set(ctx, key, time.Now()); err != nil {
 			slog.Error("tracker set failed", "key", key, "err", err)
 		}
 	}()

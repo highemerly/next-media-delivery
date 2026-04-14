@@ -504,6 +504,7 @@ Negative Cache (142 entries):
 | `REDIS_ADDR` | — | Redis ホスト:ポート（例: `localhost:6379`） |
 | `REDIS_PASSWORD` | — | Redis パスワード |
 | `REDIS_DB` | `0` | Redis DB 番号 |
+| `ASYNC_WRITE_TIMEOUT` | `30s` | L1/L2キャッシュ書き込み・AccessTracker更新の非同期goroutineタイムアウト |
 | `MAX_FILE_SIZE` | `250MiB` | オリジンフェッチの最大サイズ |
 | `FETCH_TIMEOUT` | `30s` | オリジンフェッチのタイムアウト |
 | `FETCH_MAX_REDIRECTS` | `3` | オリジンフェッチ時のリダイレクト追従上限 |
