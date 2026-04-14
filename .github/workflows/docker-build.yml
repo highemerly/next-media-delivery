@@ -102,6 +102,7 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
 
   # ------------------------------------------------------------------ #
   # Job 3: Create PR to k8s manifest repository
