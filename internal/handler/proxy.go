@@ -251,7 +251,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.asyncTrackerSet(key)
 	}
 
-	xcache := xcachePrefix + ", ORI"
+	xcache := xcachePrefix + ", ORI=200"
 	now := time.Now()
 	response.Write(w, response.Params{
 		StatusCode:   http.StatusOK,
@@ -351,7 +351,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 		response.Write(w, response.Params{
 			StatusCode:   http.StatusRequestEntityTooLarge,
 			CacheControl: h.deps.Cfg.Cache.Control4XX,
-			XCache:       xcachePrefix + ", ORI",
+			XCache:       xcachePrefix + ", ORI=200",
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
@@ -389,7 +389,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 		return
 	}
 
-	xcache := xcachePrefix + ", ORI"
+	xcache := xcachePrefix + ", ORI=ERR"
 
 	// Content-Type rejection: 422 Unprocessable Entity, no fallback.
 	// Note: this branch is only reached when debug=false (debug skips the Content-Type check).
@@ -398,7 +398,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 		response.Write(w, response.Params{
 			StatusCode:   http.StatusUnprocessableEntity,
 			CacheControl: h.deps.Cfg.Cache.ControlDeny,
-			XCache:       xcache + ", L1=DENY/BAD_CONTENT",
+			XCache:       xcachePrefix + ", ORI=200, L1=DENY/BAD_CONTENT",
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),

@@ -138,7 +138,7 @@ func WriteError(w http.ResponseWriter, statusCode int, cacheControl, xcache, cac
 func serverTiming(fetch, convert time.Duration) string {
 	fetchMS := fetch.Milliseconds()
 	convertMS := convert.Milliseconds()
-	return fmt.Sprintf("fetch;dur=%d, convert;dur=%d", fetchMS, convertMS)
+	return fmt.Sprintf("nmdFetch;dur=%d, nmdConvert;dur=%d", fetchMS, convertMS)
 }
 
 // nmdInfo builds the Nmd-Info header value.

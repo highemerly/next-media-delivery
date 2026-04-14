@@ -105,31 +105,31 @@ assert_match() {
 }
 
 # assert_server_timing_fetch_ge1 <server_timing_value> <label>
-# Checks fetch;dur >= 1 (origin was actually contacted)
+# Checks nmdFetch;dur >= 1 (origin was actually contacted)
 assert_server_timing_fetch_ge1() {
   local st="$1" label="$2"
   local fetch_dur
-  fetch_dur=$(echo "$st" | sed -E 's/.*fetch;dur=([0-9]+).*/\1/')
+  fetch_dur=$(echo "$st" | sed -E 's/.*nmdFetch;dur=([0-9]+).*/\1/')
   if [ -n "$fetch_dur" ] && [ "$fetch_dur" -ge 1 ]; then
-    echo "  [OK] ${label}: fetch;dur=${fetch_dur} (>= 1)"
+    echo "  [OK] ${label}: nmdFetch;dur=${fetch_dur} (>= 1)"
     return 0
   else
-    echo "  [FAIL] ${label}: expected fetch;dur >= 1, got '${st}'"
+    echo "  [FAIL] ${label}: expected nmdFetch;dur >= 1, got '${st}'"
     return 1
   fi
 }
 
 # assert_server_timing_fetch_zero <server_timing_value> <label>
-# Checks fetch;dur = 0 (cache hit, no origin contact)
+# Checks nmdFetch;dur = 0 (cache hit, no origin contact)
 assert_server_timing_fetch_zero() {
   local st="$1" label="$2"
   local fetch_dur
-  fetch_dur=$(echo "$st" | sed -E 's/.*fetch;dur=([0-9]+).*/\1/')
+  fetch_dur=$(echo "$st" | sed -E 's/.*nmdFetch;dur=([0-9]+).*/\1/')
   if [ -n "$fetch_dur" ] && [ "$fetch_dur" -eq 0 ]; then
-    echo "  [OK] ${label}: fetch;dur=0 (cache hit)"
+    echo "  [OK] ${label}: nmdFetch;dur=0 (cache hit)"
     return 0
   else
-    echo "  [FAIL] ${label}: expected fetch;dur=0, got '${st}'"
+    echo "  [FAIL] ${label}: expected nmdFetch;dur=0, got '${st}'"
     return 1
   fi
 }

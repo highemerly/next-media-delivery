@@ -5,7 +5,7 @@
 #   HTTP status    : 200
 #   Nmd-Cache      : L1=HIT
 #   Cache-Control  : max-age=31536000, immutable
-#   Server-Timing  : fetch;dur=0, convert;dur=0
+#   Server-Timing  : nmdFetch;dur=0, nmdConvert;dur=0
 #   Last-Modified  : <= time recorded just before the 1st request (cache-write time)
 source "$(dirname "$0")/lib.sh"
 
@@ -42,5 +42,5 @@ test_cache_hit() {
   return $ok
 }
 
-run_test "02: L1 cache hit — Nmd-Cache: L1=HIT, fetch;dur=0, Last-Modified at store time" test_cache_hit
+run_test "02: L1 cache hit — Nmd-Cache: L1=HIT, nmdFetch;dur=0, Last-Modified at store time" test_cache_hit
 print_summary

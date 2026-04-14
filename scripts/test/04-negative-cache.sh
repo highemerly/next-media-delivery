@@ -3,15 +3,15 @@
 #
 # 04a — 1st request (origin fetch):
 #   HTTP status    : 404
-#   Nmd-Cache      : L1=MISS, ORI
+#   Nmd-Cache      : L1=MISS, ORI=ERR
 #   Cache-Control  : max-age=3600
-#   Server-Timing  : fetch;dur >= 1  (origin contacted)
+#   Server-Timing  : nmdFetch;dur >= 1  (origin contacted)
 #
 # 04b — 2nd request (negative cache hit):
 #   HTTP status    : 404
 #   Nmd-Cache      : L1=HIT/NEGATIVE4XX
 #   Cache-Control  : max-age=3600
-#   Server-Timing  : fetch;dur = 0   (origin NOT contacted)
+#   Server-Timing  : nmdFetch;dur = 0   (origin NOT contacted)
 source "$(dirname "$0")/lib.sh"
 
 # Unique URL — must not collide with test 03b's negative cache entry

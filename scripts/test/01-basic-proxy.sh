@@ -3,9 +3,9 @@
 #
 # Expected (S3 disabled, so L2 omitted):
 #   HTTP status    : 200
-#   Nmd-Cache      : L1=MISS, ORI
+#   Nmd-Cache      : L1=MISS, ORI=200
 #   Cache-Control  : max-age=31536000, immutable
-#   Server-Timing  : fetch;dur>=1, convert;dur>=0
+#   Server-Timing  : nmdFetch;dur>=1, nmdConvert;dur>=0
 #   Nmd-Cache-Key  : 64-char SHA-256 hex
 #   Set-Cookie     : (absent)
 #   Server         : (absent)

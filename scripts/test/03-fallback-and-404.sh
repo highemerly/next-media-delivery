@@ -3,15 +3,15 @@
 #
 # 03a — WITH ?fallback: origin 404 → fallback image returned
 #   HTTP status    : 200
-#   Nmd-Cache      : L1=MISS, ORI, L1=FALLBACK
+#   Nmd-Cache      : L1=MISS, ORI=ERR, L1=FALLBACK
 #   Cache-Control  : max-age=86400
-#   Server-Timing  : fetch;dur>=1
+#   Server-Timing  : nmdFetch;dur>=1
 #
 # 03b — WITHOUT ?fallback: origin 404 propagated as-is
 #   HTTP status    : 404
-#   Nmd-Cache      : L1=MISS, ORI
+#   Nmd-Cache      : L1=MISS, ORI=ERR
 #   Cache-Control  : max-age=3600
-#   Server-Timing  : fetch;dur>=1
+#   Server-Timing  : nmdFetch;dur>=1
 source "$(dirname "$0")/lib.sh"
 
 # Use distinct filenames so negative-cache from 03a does not affect 03b

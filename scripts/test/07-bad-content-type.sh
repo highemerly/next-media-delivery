@@ -6,7 +6,7 @@
 #
 # Expected:
 #   HTTP status    : 422
-#   Nmd-Cache      : L1=MISS, ORI, L1=DENY/BAD_CONTENT
+#   Nmd-Cache      : L1=MISS, ORI=200, L1=DENY/BAD_CONTENT
 #   Cache-Control  : max-age=86400
 source "$(dirname "$0")/lib.sh"
 

@@ -43,7 +43,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `Set-Cookie` / `Server` / `X-Powered-By` / `HSTS` 等 | 削除 | オリジンのセキュリティポリシー・情報を引き継がない |
 | `Nmd-Cache-Key` | SHA256ハッシュ | デバッグ用。常に出力。purge CLI との連携用 |
 | `Nmd-Cache` | キャッシュヒット有無、エラー内容による（下記参照） | デバッグ用。常に出力。キャッシュ状況の確認用 |
-| `Server-Timing` | `fetch;dur=143, convert;dur=28` | デバッグ用。フェッチ時間・変換時間（ms）。L1ヒット時は両方0 |
+| `Server-Timing` | `nmdFetch;dur=143, nmdConvert;dur=28` | デバッグ用。フェッチ時間・変換時間（ms）。L1ヒット時は両方0 |
 | `Timing-Allow-Origin` | `*` | デバッグ用。クロスオリジンでも Server-Timing を参照可能にする |
 
 レスポンスステータスコード、`Nmd-Cache`、`Cache-Control` の値:
@@ -763,7 +763,7 @@ vips.Startup(&vips.Config{
 - **変換あり時に変換前データを先に返さない理由**: `no-cache` で返してもブラウザ汚染は防げるが、`static=1`（アニメーション静止化）などは変換前の生ファイルを返すと動作が壊れる。変換なし（rawアクセス）は変換処理が不要なので即レスポンス可能。変換ありの遅さは singleflight + セマフォで対応
 - **Circuit Breaker の HALF-OPEN を厳密にしない理由**: HALF-OPEN 中に数リクエスト通り抜けても実害はない。`sync.Mutex` による排他制御は実装コストに見合わないため省略
 - **Via ではなく CDN-Loop を使う理由**: Via はループ検出専用ではなく、一部実装でVia存在時にHTTP/1.1機能が無効化されるため実用的でない。CDN-Loop（RFC 8586）はAkamai・Fastly・Cloudflare共同で策定したループ検出専用の標準ヘッダ
-- **Server-Timing の desc を省略する理由**: ヘッダを短く保つため。`fetch` と `convert` という名前で用途は自明
+- **Server-Timing の desc を省略する理由**: ヘッダを短く保つため。`nmdFetch` と `nmdConvert` という名前で用途は自明
 - **Server-Timing のタイミング情報が攻撃に利用されないか**: フェッチ時間・変換時間はオリジンサーバーの機密情報を含まない。処理時間のばらつきからコンテンツの推測は困難でリスクは無視できる
 - **オリジンの Cache-Control を無視する理由**: Misskey公式仕様でも固定で `max-age=31536000, immutable` を返すと定められており、オリジンの指示を尊重しない設計。`no-store` を尊重するとMastodon URL無効化問題への対処ができなくなる。`no-transform` も同様に無視する
 - **管理エンドポイントを別ポートに分離した理由**: インメモリ状態（NegativeCache・CircuitBreaker）はCLIから直接参照できないため、実行中プロセスへのHTTP経由アクセスが必要。別ポート（ADMIN_PORT）に分離し、k8s Serviceに含めないことで外部露出なく実現する
