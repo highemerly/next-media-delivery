@@ -86,6 +86,9 @@ func Write(w http.ResponseWriter, p Params) {
 	if p.ContentType != "" {
 		h.Set(headerContentType, p.ContentType)
 	}
+	if p.Body != nil {
+		h.Set("Content-Length", fmt.Sprintf("%d", len(p.Body)))
+	}
 	if !p.LastModified.IsZero() {
 		h.Set(headerLastModified, p.LastModified.UTC().Format(http.TimeFormat))
 	}
