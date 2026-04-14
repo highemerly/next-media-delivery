@@ -37,19 +37,6 @@ get_response() {
   rm -f "$tmpfile"
 }
 
-# get_response_get <url>
-# Like get_response but uses GET instead of HEAD.
-# Use this when the origin may reject HEAD requests (e.g. httpbin /headers).
-# Stores results in: RESP_STATUS, RESP_HEADERS
-get_response_get() {
-  local url="$1" hdrfile bodyfile
-  hdrfile=$(mktemp)
-  bodyfile=$(mktemp)
-  RESP_STATUS=$(curl -s -D "$hdrfile" -o "$bodyfile" -w "%{http_code}" "$url")
-  RESP_HEADERS=$(tr -d '\r' < "$hdrfile")
-  rm -f "$hdrfile" "$bodyfile"
-}
-
 # get_http_status <url>  (single request; use get_response when headers are also needed)
 get_http_status() {
   curl -o /dev/null -s -w "%{http_code}" "$1"
