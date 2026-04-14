@@ -22,7 +22,7 @@ test_basic_proxy() {
   get_response "$url"  # sets RESP_STATUS, RESP_HEADERS
 
   local ok=0
-  local ct nc cc st ck acao cl
+  local ct nc cc st ck acao cl ni
 
   ct=$(extract_header "content-type"                  "$RESP_HEADERS")
   nc=$(extract_header "nmd-cache"                     "$RESP_HEADERS")
@@ -31,6 +31,7 @@ test_basic_proxy() {
   ck=$(extract_header "nmd-cache-key"                 "$RESP_HEADERS")
   acao=$(extract_header "access-control-allow-origin" "$RESP_HEADERS")
   cl=$(extract_header "content-length"                "$RESP_HEADERS")
+  ni=$(extract_header "nmd-info"                      "$RESP_HEADERS")
 
   assert_http_status "200"                         "$RESP_STATUS" "HTTP status"                 || ok=1
   assert_match       "^image/"                     "$ct"          "Content-Type"                || ok=1
@@ -40,8 +41,10 @@ test_basic_proxy() {
   assert_match       "^[0-9a-f]{64}$"              "$ck"          "Nmd-Cache-Key"               || ok=1
   assert_eq          "*"                           "$acao"        "Access-Control-Allow-Origin" || ok=1
   assert_match       "^[1-9][0-9]*$"               "$cl"          "Content-Length >= 1"         || ok=1
+  assert_match       "ver=.*, variant=avatar, originalSize=[1-9][0-9]*" "$ni" "Nmd-Info"        || ok=1
   assert_header_absent "set-cookie"                "$RESP_HEADERS" "Set-Cookie absent"          || ok=1
   assert_header_absent "server"                    "$RESP_HEADERS" "Server absent"              || ok=1
+  assert_header_absent "nmd-version"               "$RESP_HEADERS" "Nmd-Version absent"         || ok=1
 
   return $ok
 }

@@ -54,15 +54,15 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | Y | - | N | - | L1ヒット + If-Modified-Since 一致（未変更） | `L1=HIT` | 304 | `max-age=31536000, immutable` |
 | Y | - | N | - | L1ヒット + If-None-Match 一致（未変更） | `L1=HIT` | 304 | `max-age=31536000, immutable` |
 | N | Y | N | - | L2オブジェクトストレージヒット | `L1=MISS, L2=HIT` | 200 | `max-age=31536000, immutable` |
-| N | N | Y | 200 | オリジンで解決 | `L1=MISS, L2=MISS, ORI` | 200 | `max-age=31536000, immutable` |
-| N | N | Y | 200 | オリジン取得成功だが画像以外の Content-Type 応答 | `L1=MISS, L2=MISS, ORI, L1=DENY/BAD_CONTENT` | 422 | `max-age=86400` |
-| N | N | Y | 410 |（fallbackなし）410 Gone | `L1=MISS, L2=MISS, ORI` | 410 | `max-age=31536000, immutable` |
-| N | N | Y | 4xx (410以外) |（fallbackなし）オリジンエラー | `L1=MISS, L2=MISS, ORI` | オリジンの値を引き継ぐ | `max-age=1800` |
-| N | N | Y | - | オリジン応答が MAX_FILE_SIZE 超過 | `L1=MISS, L2=MISS, ORI` | 413 | `max-age=86400` |
+| N | N | Y | 200 | オリジンで解決 | `L1=MISS, L2=MISS, ORI=200` | 200 | `max-age=31536000, immutable` |
+| N | N | Y | 200 | オリジン取得成功だが画像以外の Content-Type 応答 | `L1=MISS, L2=MISS, ORI=200, L1=DENY/BAD_CONTENT` | 422 | `max-age=86400` |
+| N | N | Y | 410 |（fallbackなし）410 Gone | `L1=MISS, L2=MISS, ORI=ERR` | 410 | `max-age=31536000, immutable` |
+| N | N | Y | 4xx (410以外) |（fallbackなし）オリジンエラー | `L1=MISS, L2=MISS, ORI=ERR` | オリジンの値を引き継ぐ | `max-age=1800` |
+| N | N | Y | - | オリジン応答が MAX_FILE_SIZE 超過 | `L1=MISS, L2=MISS, ORI=200` | 413 | `max-age=86400` |
 | N | N | Y | timeout | （fallbackなし）タイムアウト・ネットワークエラー | `L1=MISS, L2=MISS, ORI=TIMEOUT` | 502 | `max-age=120, must-revalidate` |
-| N | N | Y | 5xx | （fallbackなし）オリジンエラー | `L1=MISS, L2=MISS, ORI` | 502 | `max-age=120, must-revalidate` |
+| N | N | Y | 5xx | （fallbackなし）オリジンエラー | `L1=MISS, L2=MISS, ORI=ERR` | 502 | `max-age=120, must-revalidate` |
 | N | N | Y | timeout | （fallbackあり）オリジンエラー | `L1=MISS, L2=MISS, ORI=TIMEOUT, L1=FALLBACK`| 200 | `max-age=86400` |
-| N | N | Y | 4xx or 5xx | （fallbackあり）オリジンエラー | `L1=MISS, L2=MISS, ORI, L1=FALLBACK` | 200 | `max-age=86400` |
+| N | N | Y | 4xx or 5xx | （fallbackあり）オリジンエラー | `L1=MISS, L2=MISS, ORI=ERR, L1=FALLBACK` | 200 | `max-age=86400` |
 | Y (Negative/410) | - | N | - | L1 Negativeヒット（410） | `L1=HIT/NEGATIVE4XX` | 410 | `max-age=31536000, immutable` |
 | Y (Negative/4xx) | - | N | - | L1 Negativeヒット（4xx、410以外） | `L1=HIT/NEGATIVE4XX` | オリジンの値を引き継ぐ | `max-age=1800` |
 | Y (Negative/5xx) | - | N | - | L1 Negativeヒット（5xx） | `L1=HIT/NEGATIVE5XX` | 502 | `max-age=120, must-revalidate` |

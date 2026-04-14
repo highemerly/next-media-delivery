@@ -21,7 +21,7 @@ const (
 	headerXCache            = "Nmd-Cache"
 	headerXCacheKey         = "Nmd-Cache-Key"
 	headerXCacheable        = "Nmd-Cacheable"
-	headerNmdVersion        = "Nmd-Version"
+	headerNmdInfo           = "Nmd-Info"
 	headerServerTiming      = "Server-Timing"
 	headerTimingAllowOrigin = "Timing-Allow-Origin"
 
@@ -31,7 +31,7 @@ const (
 // appVersion is set once at startup via SetVersion.
 var appVersion = "dev"
 
-// SetVersion stores the build version to be emitted as Nmd-Version in every response.
+// SetVersion stores the build version to be emitted as Nmd-Info in every response.
 func SetVersion(v string) { appVersion = v }
 
 // headersToStrip are removed from the response unconditionally.
@@ -54,6 +54,8 @@ type Params struct {
 	ETag          string // weak ETag value, e.g. "1738000000-102400" (without W/" wrapper)
 	OriginalURL   string // used to derive Content-Disposition filename
 	Debug         bool   // overrides Cache-Control to no-store and adds X-Cacheable: false
+	OriginalSize  int64  // size of the origin response before conversion; 0 means unknown (omitted from Nmd-Info)
+	Variant       string // request variant (e.g. "avatar", "raw"); always included in Nmd-Info
 }
 
 // Write sets all fixed headers and writes the body.
@@ -79,7 +81,7 @@ func Write(w http.ResponseWriter, p Params) {
 	}
 	h.Set(headerXCache, p.XCache)
 	h.Set(headerXCacheKey, p.CacheKey)
-	h.Set(headerNmdVersion, appVersion)
+	h.Set(headerNmdInfo, nmdInfo(p.OriginalSize, p.Variant))
 	h.Set(headerServerTiming, serverTiming(p.FetchDur, p.ConvertDur))
 
 	// Content headers.
@@ -112,7 +114,7 @@ func WriteNotModified(w http.ResponseWriter, p Params) {
 	h.Set(headerCacheControl, p.CacheControl)
 	h.Set(headerXCache, p.XCache)
 	h.Set(headerXCacheKey, p.CacheKey)
-	h.Set(headerNmdVersion, appVersion)
+	h.Set(headerNmdInfo, nmdInfo(p.OriginalSize, p.Variant))
 	if !p.LastModified.IsZero() {
 		h.Set(headerLastModified, p.LastModified.UTC().Format(http.TimeFormat))
 	}
@@ -137,6 +139,16 @@ func serverTiming(fetch, convert time.Duration) string {
 	fetchMS := fetch.Milliseconds()
 	convertMS := convert.Milliseconds()
 	return fmt.Sprintf("fetch;dur=%d, convert;dur=%d", fetchMS, convertMS)
+}
+
+// nmdInfo builds the Nmd-Info header value.
+// originalSize=0 means unknown (e.g. L1 HIT) and is omitted.
+func nmdInfo(originalSize int64, variant string) string {
+	s := fmt.Sprintf("ver=%s, variant=%s", appVersion, variant)
+	if originalSize > 0 {
+		s += fmt.Sprintf(", originalSize=%d", originalSize)
+	}
+	return s
 }
 
 // contentDisposition derives a Content-Disposition filename from the origin URL.

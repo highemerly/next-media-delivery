@@ -39,7 +39,8 @@ type sfResult struct {
 	// skipCache instructs the caller not to write to L1/L2/AccessTracker.
 	// Used when the response should not be cached (e.g. bad Content-Type).
 	// Add new conditions here as needed.
-	skipCache bool
+	skipCache  bool
+	originSize int64 // raw fetch size before conversion; 0 if unknown
 }
 
 // Deps holds all dependencies for the proxy handler.
@@ -112,6 +113,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				XCache:       xcache + ", L1=FALLBACK",
 				CacheKey:     key,
 				LastModified: time.Now(),
+				Variant:      v.String(),
 			})
 			return
 		}
@@ -154,6 +156,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					CacheKey:     key,
 					LastModified: entry.StoredAt,
 					ETag:         etag,
+					Variant:      v.String(),
 				})
 				return
 			}
@@ -167,6 +170,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				LastModified: entry.StoredAt,
 				ETag:         etag,
 				OriginalURL:  rawURL,
+				Variant:      v.String(),
 			})
 			return
 		} else if err != nil {
@@ -190,6 +194,8 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						CacheKey:     key,
 						LastModified: obj.StoredAt,
 						OriginalURL:  rawURL,
+						Variant:      v.String(),
+						OriginalSize: obj.Size,
 					})
 					return
 				}
@@ -260,6 +266,8 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ETag:         weakETag(now, int64(len(sfVal.data))),
 		OriginalURL:  rawURL,
 		Debug:        debug,
+		Variant:      v.String(),
+		OriginalSize: sfVal.originSize,
 	})
 }
 
@@ -332,6 +340,7 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 		fetchDur:    fetchDur,
 		convertDur:  convertDur,
 		skipCache:   debug,
+		originSize:  result.Size,
 	}, nil
 }
 
@@ -365,6 +374,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 				CacheKey:     key,
 				FetchDur:     fetchDur,
 				LastModified: time.Now(),
+				Variant:      v.String(),
 			})
 			return
 		}
@@ -410,6 +420,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 				CacheKey:     key,
 				FetchDur:     fetchDur,
 				LastModified: time.Now(),
+				Variant:      v.String(),
 			})
 			return
 		}
