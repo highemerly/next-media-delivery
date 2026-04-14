@@ -36,7 +36,9 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `Content-Type` | 変換後の実際のMIMEタイプ | オリジンの値を上書き |
 | `Content-Disposition` | `inline; filename=...` | 元ファイル名ベース、拡張子は変換後に合わせる |
 | `Last-Modified` | 変換処理を行った時刻 | 変換済みファイルの生成時刻。変換なし（rawアクセス）のみフェッチ時刻とする。いかなる場合もオリジンの値は使わない。 |
+| `ETag` | `W/"<unix>-<size>"` | 弱いETag。mtime（Unix秒）とボディサイズの組み合わせ。L1 HIT・Origin fetch を問わず常に返す。 |
 | `If-Modified-Since`（リクエスト） | — | L1 HIT 時のみ評価。`Last-Modified <= If-Modified-Since` なら 304 Not Modified（ボディなし）を返す。L1 MISS・Origin fetch 時は無視して常に 200 を返す。 |
+| `If-None-Match`（リクエスト） | — | L1 HIT 時のみ評価。送られた ETag が一致すれば 304 Not Modified を返す。L1 MISS・Origin fetch 時は無視して常に 200 を返す。`If-None-Match` が存在する場合は `If-Modified-Since` を無視する（RFC 9110 §13.1.3）。 |
 | `Age` | 削除 | オリジンの Age はプロキシ再配信時点で意味をなさない |
 | `Set-Cookie` / `Server` / `X-Powered-By` / `HSTS` 等 | 削除 | オリジンのセキュリティポリシー・情報を引き継がない |
 | `Nmd-Cache-Key` | SHA256ハッシュ | デバッグ用。常に出力。purge CLI との連携用 |
@@ -50,6 +52,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 |---|---|---|---|---|---|---|---|
 | Y | - | N | - | L1ディスクキャッシュヒット | `L1=HIT` | 200 | `max-age=31536000, immutable` |
 | Y | - | N | - | L1ヒット + If-Modified-Since 一致（未変更） | `L1=HIT` | 304 | `max-age=31536000, immutable` |
+| Y | - | N | - | L1ヒット + If-None-Match 一致（未変更） | `L1=HIT` | 304 | `max-age=31536000, immutable` |
 | N | Y | N | - | L2オブジェクトストレージヒット | `L1=MISS, L2=HIT` | 200 | `max-age=31536000, immutable` |
 | N | N | Y | 200 | オリジンで解決 | `L1=MISS, L2=MISS, ORI` | 200 | `max-age=31536000, immutable` |
 | N | N | Y | 200 | オリジン取得成功だが画像以外の Content-Type 応答 | `L1=MISS, L2=MISS, ORI, L1=DENY/BAD_CONTENT` | 422 | `max-age=86400` |
@@ -133,7 +136,8 @@ GET /proxy/{filename}?url=...&avatar=1
   6.  CircuitBreaker → DENY: Nmd-Cache="L1=DENY/WAIT"、503 を返す
   7.  Blacklist      → DENY: Nmd-Cache="L1=DENY/BAD_DOMAIN"、403 を返す
   8.  L1 lookup      → HIT: Nmd-Cache="L1=HIT"、AccessTracker 更新（非同期）
-                           If-Modified-Since ヘッダあり かつ Last-Modified <= IMS → 304 Not Modified
+                           If-None-Match 一致 または If-Modified-Since >= Last-Modified → 304 Not Modified
+                           （両ヘッダが同時に存在する場合は If-None-Match が優先）
                            それ以外 → 200 レスポンス
   9.  L2 lookup      → HIT: Nmd-Cache="L1=MISS, L2=HIT"
                            L1 書き込み（非同期）、AccessTracker 更新（非同期）、レスポンス

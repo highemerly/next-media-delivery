@@ -158,6 +158,19 @@ print(int(parsedate_to_datetime(sys.argv[1]).timestamp()))
   fi
 }
 
+# assert_weak_etag <etag_value> <label>
+# Checks that the value has the weak ETag format: W/"<unix>-<size>"
+assert_weak_etag() {
+  local value="$1" label="$2"
+  if echo "$value" | grep -qE '^W/"[0-9]+-[0-9]+"$'; then
+    echo "  [OK] ${label}: weak ETag '${value}'"
+    return 0
+  else
+    echo "  [FAIL] ${label}: expected weak ETag W/\"<unix>-<size>\", got '${value}'"
+    return 1
+  fi
+}
+
 # get_response_with_header <url> <header_name> <header_value>
 # Like get_response but sends an additional request header.
 # Stores results in: RESP_STATUS, RESP_HEADERS
@@ -165,6 +178,17 @@ get_response_with_header() {
   local url="$1" header_name="$2" header_value="$3" tmpfile
   tmpfile=$(mktemp)
   RESP_STATUS=$(curl -sI -H "${header_name}: ${header_value}" -o "$tmpfile" -w "%{http_code}" "$url")
+  RESP_HEADERS=$(tr -d '\r' < "$tmpfile")
+  rm -f "$tmpfile"
+}
+
+# get_response_with_two_headers <url> <name1> <value1> <name2> <value2>
+# Like get_response but sends two additional request headers.
+# Stores results in: RESP_STATUS, RESP_HEADERS
+get_response_with_two_headers() {
+  local url="$1" name1="$2" value1="$3" name2="$4" value2="$5" tmpfile
+  tmpfile=$(mktemp)
+  RESP_STATUS=$(curl -sI -H "${name1}: ${value1}" -H "${name2}: ${value2}" -o "$tmpfile" -w "%{http_code}" "$url")
   RESP_HEADERS=$(tr -d '\r' < "$tmpfile")
   rm -f "$tmpfile"
 }

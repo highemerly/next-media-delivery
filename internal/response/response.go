@@ -17,6 +17,7 @@ const (
 	headerContentType       = "Content-Type"
 	headerContentDisp       = "Content-Disposition"
 	headerLastModified      = "Last-Modified"
+	headerETag              = "ETag"
 	headerXCache            = "Nmd-Cache"
 	headerXCacheKey         = "Nmd-Cache-Key"
 	headerXCacheable        = "Nmd-Cacheable"
@@ -50,6 +51,7 @@ type Params struct {
 	FetchDur      time.Duration
 	ConvertDur    time.Duration
 	LastModified  time.Time
+	ETag          string // weak ETag value, e.g. "1738000000-102400" (without W/" wrapper)
 	OriginalURL   string // used to derive Content-Disposition filename
 	Debug         bool   // overrides Cache-Control to no-store and adds X-Cacheable: false
 }
@@ -87,6 +89,9 @@ func Write(w http.ResponseWriter, p Params) {
 	if !p.LastModified.IsZero() {
 		h.Set(headerLastModified, p.LastModified.UTC().Format(http.TimeFormat))
 	}
+	if p.ETag != "" {
+		h.Set(headerETag, `W/"`+p.ETag+`"`)
+	}
 	if p.OriginalURL != "" {
 		h.Set(headerContentDisp, contentDisposition(p.OriginalURL, p.ContentType))
 	}
@@ -107,6 +112,9 @@ func WriteNotModified(w http.ResponseWriter, p Params) {
 	h.Set(headerNmdVersion, appVersion)
 	if !p.LastModified.IsZero() {
 		h.Set(headerLastModified, p.LastModified.UTC().Format(http.TimeFormat))
+	}
+	if p.ETag != "" {
+		h.Set(headerETag, `W/"`+p.ETag+`"`)
 	}
 	w.WriteHeader(http.StatusNotModified)
 }

@@ -21,6 +21,8 @@ type Entry struct {
 	ContentType string
 	// StoredAt is the mtime of the body file, used as Last-Modified for raw responses.
 	StoredAt time.Time
+	// Size is the byte length of Body, used together with StoredAt to generate a weak ETag.
+	Size int64
 }
 
 // Cache is the L1 disk cache.
@@ -67,6 +69,7 @@ func (c *Cache) Get(key string) (*Entry, error) {
 		Body:        body,
 		ContentType: strings.TrimSpace(string(meta)),
 		StoredAt:    info.ModTime(),
+		Size:        info.Size(),
 	}, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -143,12 +144,16 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !debug {
 		if entry, err := h.deps.L1.Get(key); err == nil && entry != nil {
 			h.asyncTrackerSet(key)
-			if checkNotModified(r, entry.StoredAt) {
+			etag := weakETag(entry.StoredAt, entry.Size)
+			// RFC 9110 §13.1.3: If-None-Match takes precedence over If-Modified-Since.
+			// Evaluate IMS only when INM is absent.
+			if checkETagMatch(r, etag) || (r.Header.Get("If-None-Match") == "" && checkNotModified(r, entry.StoredAt)) {
 				response.WriteNotModified(w, response.Params{
 					CacheControl: h.deps.Cfg.Cache.ControlSuccess,
 					XCache:       "L1=HIT",
 					CacheKey:     key,
 					LastModified: entry.StoredAt,
+					ETag:         etag,
 				})
 				return
 			}
@@ -160,6 +165,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				XCache:       "L1=HIT",
 				CacheKey:     key,
 				LastModified: entry.StoredAt,
+				ETag:         etag,
 				OriginalURL:  rawURL,
 			})
 			return
@@ -240,6 +246,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	xcache := xcachePrefix + ", ORI"
+	now := time.Now()
 	response.Write(w, response.Params{
 		StatusCode:   http.StatusOK,
 		CacheControl: h.deps.Cfg.Cache.ControlSuccess,
@@ -249,7 +256,8 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		CacheKey:     key,
 		FetchDur:     sfVal.fetchDur,
 		ConvertDur:   sfVal.convertDur,
-		LastModified: time.Now(),
+		LastModified: now,
+		ETag:         weakETag(now, int64(len(sfVal.data))),
 		OriginalURL:  rawURL,
 		Debug:        debug,
 	})
@@ -558,6 +566,27 @@ func negativeCacheXCache(status int) string {
 
 type bytesReader struct{ data []byte; pos int }
 func readerFrom(data []byte) io.Reader { return &bytesReader{data: data} }
+
+// weakETag generates a weak ETag value (without the W/"..." wrapper) from
+// the file mtime and size. Matches the format used by nginx's FileETag directive.
+func weakETag(t time.Time, size int64) string {
+	return fmt.Sprintf("%d-%d", t.Unix(), size)
+}
+
+// checkETagMatch returns true when the client's If-None-Match value matches
+// the given weak ETag, meaning the content has not changed and a 304 should
+// be returned. Handles both weak (W/"...") and unquoted forms from clients.
+func checkETagMatch(r *http.Request, etag string) bool {
+	inm := r.Header.Get("If-None-Match")
+	if inm == "" {
+		return false
+	}
+	// Normalise: strip W/" prefix and trailing quote for comparison.
+	inm = strings.TrimPrefix(inm, `W/"`)
+	inm = strings.TrimPrefix(inm, `"`)
+	inm = strings.TrimSuffix(inm, `"`)
+	return inm == etag
+}
 
 // checkNotModified returns true when the client's If-Modified-Since value is
 // >= lastModified, meaning the cached content has not changed since the client
