@@ -37,6 +37,7 @@ jobs:
         run: bash scripts/test/run-all.sh
         env:
           CDN_NAME: ci-delivery.piyo.me  # .env.ci の CDN_NAME と一致させること
+          DEBUG_KEY: abc123              # .env.ci の DEBUG_KEY と一致させること
 
       - name: Show logs on failure
         if: failure()

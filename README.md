@@ -10,7 +10,7 @@ Go言語ベースで開発された Misskey 互換メディアプロキシ
 ## エンドポイント仕様（Misskey互換）
 
 ```
-GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview=1][&badge=1][&fallback][&debug]
+GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview=1][&badge=1][&fallback][&debug=<key>]
 ```
 
 `filename` は CDN キャッシュ制御のための飾り（`image.webp`, `avatar.webp` など）。
@@ -24,7 +24,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `preview=1` | プレビュー用縮小 | 200×200以下 WebP | ✅ |
 | `badge=1` | Webプッシュ通知バッジ | 96×96 PNG | ✅ |
 | `fallback` | エラー時にダミー画像を200で返す | variant に応じた画像 | ✅ |
-| `debug` | オリジンの Content-Type チェックをスキップし画像以外も通す。キャッシュは行わない。`Cache-Control: no-store` を返す | — | ❌ 独自拡張 |
+| `debug=<key>` | 事前共有キー（`DEBUG_KEY` 環境変数）と値が一致した場合のみ有効。オリジンの Content-Type チェックをスキップし画像以外も通す。キャッシュは行わない。`Cache-Control: no-store` を返す | — | ❌ 独自拡張 |
 
 レスポンスヘッダー:
 
@@ -517,6 +517,7 @@ Negative Cache (142 entries):
 | `CIRCUIT_BREAKER_ENABLED` | `true` | Circuit Breaker の有効/無効 |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | 連続失敗回数で OPEN にする閾値 |
 | `CIRCUIT_BREAKER_TIMEOUT` | `5m` | OPEN 継続時間 |
+| `DEBUG_KEY` | — | `?debug=<key>` デバッグモードの事前共有キー。未設定時は `?debug` パラメータは常に無効 |
 | `NMD_INSTANCE_ID` | — | `Nmd-Info` ヘッダの `instance` フィールドに付与するインスタンス識別子（未設定時は `unknown`） |
 
 ## k8s マニフェスト構成（概要）
@@ -585,7 +586,7 @@ k8s の liveness/readiness probe に使用。L1ディスクへの書き込み可
 HTML エラーページや意図しないリソースを配信・キャッシュしないための対策。
 
 - Negative Cache には記録しない（オリジンのエラーではなくプロキシ側の判断）
-- `?debug` クエリパラメータを付与するとチェックをスキップし、そのまま応答する（Misskey互換外の独自拡張）
+- `?debug=<key>` クエリパラメータを付与するとチェックをスキップし、そのまま応答する（Misskey互換外の独自拡張）。`key` が環境変数 `DEBUG_KEY` と一致した場合のみ有効（`DEBUG_KEY` が未設定の場合は常に無効）
 - `debug` はContent-Typeチェックのバイパスに加え、L1/L2キャッシュの読み書きを行わない（originへ必ずフェッチする）。レスポンスには `Cache-Control: no-store` を付与する
 
 ### SSRF・不正ドメイン対策

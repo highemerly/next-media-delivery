@@ -54,7 +54,9 @@ type ParseResult struct {
 
 // ParseQuery derives a Variant and fallback flag from the request query string.
 // Priority: emoji > avatar > preview > badge > static > raw.
-func ParseQuery(r *http.Request) ParseResult {
+// debugKey is compared against the value of the ?debug query parameter;
+// Debug is true only when they match and debugKey is non-empty.
+func ParseQuery(r *http.Request, debugKey string) ParseResult {
 	q := r.URL.Query()
 	var v Variant
 	switch {
@@ -72,7 +74,7 @@ func ParseQuery(r *http.Request) ParseResult {
 		v = Raw
 	}
 	_, wantFallback := q["fallback"]
-	_, debug := q["debug"]
+	debug := debugKey != "" && q.Get("debug") == debugKey
 	return ParseResult{Variant: v, WantFallback: wantFallback, Debug: debug}
 }
 

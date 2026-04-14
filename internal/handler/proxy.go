@@ -71,7 +71,7 @@ func NewProxyHandler(deps Deps) *ProxyHandler {
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Parse query parameters.
-	parsed := variant.ParseQuery(r)
+	parsed := variant.ParseQuery(r, h.deps.Cfg.Security.DebugKey)
 	v := parsed.Variant
 	wantFallback := parsed.WantFallback
 	debug := parsed.Debug

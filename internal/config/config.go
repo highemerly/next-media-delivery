@@ -88,6 +88,7 @@ type SecurityConfig struct {
 	BlacklistFile       string
 	CircuitBreaker      CircuitConfig
 	NegativeCache       NegCacheConfig
+	DebugKey            string
 }
 
 type CircuitConfig struct {
@@ -171,6 +172,7 @@ func Load() (*Config, error) {
 
 	cfg.Security.NegativeCache.TTL40X = getEnvDuration("NEGATIVE_CACHE_TTL_40X", 24*time.Hour)
 	cfg.Security.NegativeCache.TTL5XX = getEnvDuration("NEGATIVE_CACHE_TTL_5XX", 5*time.Minute)
+	cfg.Security.DebugKey = os.Getenv("DEBUG_KEY")
 
 	cfg.Log.Level = getEnv("LOG_LEVEL", "INFO")
 
