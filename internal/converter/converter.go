@@ -102,6 +102,9 @@ func (c *BimgConverter) Convert(ctx context.Context, req Request) (*Result, erro
 	case variant.Static:
 		return c.convertStatic(req.Data)
 
+	case variant.OGP:
+		return c.convertOGP(req.Data)
+
 	default:
 		return nil, fmt.Errorf("converter: unknown variant %v", req.Variant)
 	}
@@ -176,6 +179,41 @@ func (c *BimgConverter) convertWebP(data []byte, maxW, maxH int) (*Result, error
 	out, err := bimg.NewImage(data).Process(opts)
 	if err != nil {
 		return nil, fmt.Errorf("converter: webp: %w", err)
+	}
+	return &Result{Data: out, ContentType: "image/webp"}, nil
+}
+
+// OGP card preset limits.
+// Width is capped at ogpMaxWidth (X displays cards at ~500–600px, so a 1200px
+// source stays crisp without needing more). Height is capped at ogpMaxHeight to
+// keep extreme portraits within X's 4096px-per-side limit. Aspect ratio is
+// preserved, cropping is never applied, and images smaller than the caps are not
+// upscaled (only re-encoded to WebP).
+const (
+	ogpMaxWidth  = 1200
+	ogpMaxHeight = 4096
+)
+
+// convertOGP produces an OG card WebP: width ≤ ogpMaxWidth, aspect ratio
+// preserved, no crop, no upscale, EXIF/metadata stripped. AVIF/other inputs are
+// decoded and re-encoded to WebP so X (Twitter) can render the OG card image.
+func (c *BimgConverter) convertOGP(data []byte) (*Result, error) {
+	img := bimg.NewImage(data)
+	size, err := img.Size()
+	if err != nil {
+		return nil, fmt.Errorf("converter: get size: %w", err)
+	}
+	w, h := fitDimensions(size.Width, size.Height, ogpMaxWidth, ogpMaxHeight)
+	out, err := bimg.NewImage(data).Process(bimg.Options{
+		Type:          bimg.WEBP,
+		Quality:       c.cfg.WebPQuality,
+		Width:         w,
+		Height:        h,
+		Embed:         false,
+		StripMetadata: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("converter: ogp: %w", err)
 	}
 	return &Result{Data: out, ContentType: "image/webp"}, nil
 }

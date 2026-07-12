@@ -12,6 +12,7 @@ const (
 	Preview                // ≤200×200 WebP
 	Badge                  // 96×96 PNG
 	Static                 // first frame only WebP (for animated images)
+	OGP                    // OG card: width ≤1200 WebP, aspect ratio preserved, no crop
 )
 
 // String returns the canonical string used in cache keys.
@@ -27,6 +28,8 @@ func (v Variant) String() string {
 		return "badge"
 	case Static:
 		return "static"
+	case OGP:
+		return "ogp"
 	default:
 		return "raw"
 	}
@@ -59,7 +62,7 @@ type ParseResult struct {
 }
 
 // ParseQuery derives a Variant and fallback flag from the request query string.
-// Priority: emoji > avatar > preview > badge > static > raw.
+// Priority: emoji > avatar > preview > badge > static > ogp > raw.
 // debugKey is compared against the value of the ?debug query parameter;
 // Debug is true only when they match and debugKey is non-empty.
 func ParseQuery(r *http.Request, debugKey string) ParseResult {
@@ -76,6 +79,8 @@ func ParseQuery(r *http.Request, debugKey string) ParseResult {
 		v = Badge
 	case isSet(q, "static"):
 		v = Static
+	case isSet(q, "ogp"):
+		v = OGP
 	default:
 		v = Raw
 	}

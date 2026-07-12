@@ -349,7 +349,20 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 		conv, err := h.deps.Converter.Convert(ctx, converter.Request{Data: body, Variant: v, Format: f})
 		if err != nil {
 			slog.Error("conversion failed", "variant", v, "err", err)
-			return &sfResult{fetchDur: fetchDur, convertDur: time.Since(t1), originErr: fmt.Errorf("convert: %w", err)}, nil
+			// Preserve the original bytes so that ?fallback can serve them
+			// as-is (200) instead of erroring. skipCache is set because the
+			// unconverted body must never populate the L1/L2 entry for this
+			// (url, variant, format) key.
+			originCT := result.ContentType
+			if originCT == "" {
+				originCT = "application/octet-stream"
+			}
+			return &sfResult{
+				fetchDur:   fetchDur,
+				convertDur: time.Since(t1),
+				skipCache:  true,
+				originErr:  &conversionError{body: body, contentType: originCT},
+			}, nil
 		}
 		data = conv.Data
 		contentType = conv.ContentType
@@ -413,6 +426,38 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			StatusCode:   http.StatusBadGateway,
 			CacheControl: h.deps.Cfg.Cache.Control5XX,
 			XCache:       xcacheNet,
+			CacheKey:     key,
+			FetchDur:     fetchDur,
+			LastModified: time.Now(),
+			Variant:      v.String(),
+		})
+		return
+	}
+
+	// Conversion failure (e.g. undecodable input). With ?fallback, degrade
+	// gracefully by serving the original fetched bytes as-is (200) rather than
+	// erroring; without it, return 502. Not cached (skipCache was set upstream).
+	if ce, ok := err.(*conversionError); ok {
+		if wantFallback {
+			slog.Warn("conversion failed; serving original via fallback", "url", rawURL)
+			response.Write(w, response.Params{
+				StatusCode:   http.StatusOK,
+				CacheControl: h.deps.Cfg.Cache.ControlFailover,
+				ContentType:  ce.contentType,
+				Body:         ce.body,
+				XCache:       xcachePrefix + ", ORI=200, L1=FALLBACK",
+				CacheKey:     key,
+				FetchDur:     fetchDur,
+				LastModified: time.Now(),
+				Variant:      v.String(),
+			})
+			return
+		}
+		slog.Error("conversion failed", "url", rawURL)
+		response.Write(w, response.Params{
+			StatusCode:   http.StatusBadGateway,
+			CacheControl: h.deps.Cfg.Cache.Control5XX,
+			XCache:       xcachePrefix + ", ORI=200, ORI=ERR",
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
@@ -575,6 +620,16 @@ func isTimeoutError(err error) bool {
 	}
 	return false
 }
+
+// conversionError is returned when image conversion fails (e.g. undecodable
+// input). It carries the original fetched bytes so that a request with
+// ?fallback can serve them unchanged with a 200 response.
+type conversionError struct {
+	body        []byte
+	contentType string
+}
+
+func (e *conversionError) Error() string { return "conversion failed" }
 
 // contentTypeError is returned when the origin responds with a disallowed Content-Type.
 type contentTypeError struct {

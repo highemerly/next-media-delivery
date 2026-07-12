@@ -10,7 +10,7 @@ Go言語ベースで開発された Misskey 互換メディアプロキシ
 ## エンドポイント仕様（Misskey互換）
 
 ```
-GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview=1][&badge=1][&fallback][&debug=<key>]
+GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview=1][&badge=1][&ogp=1][&fallback][&debug=<key>]
 ```
 
 `filename` の**拡張子**が出力フォーマットを決定する。それ以外の部分は CDN キャッシュ制御のための飾り。
@@ -28,7 +28,8 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `static=1` | アニメーション先頭フレームのみ | WebP静止画 | ✅ |
 | `preview=1` | プレビュー用縮小 | 200×200以下 WebP または AVIF | ✅ |
 | `badge=1` | Webプッシュ通知バッジ | 96×96 PNG | ✅ |
-| `fallback` | エラー時にダミー画像を200で返す | variant に応じた画像 | ✅ |
+| `ogp=1` | OGカード用縮小（X/Twitter が AVIF 非対応のため WebP 化） | 幅1200px以下 WebP（縦長は例: 1200×1600）。クロップなし・アスペクト比維持・拡大なし・メタデータ除去 | ❌ 独自拡張 |
+| `fallback` | エラー時にダミー画像を200で返す（変換失敗時は元画像をそのまま200で返す） | variant に応じた画像 / 元画像 | ✅ |
 | `debug=<key>` | 事前共有キー（`DEBUG_KEY` 環境変数）と値が一致した場合のみ有効。オリジンの Content-Type チェックをスキップし画像以外も通す。キャッシュは行わない。`Cache-Control: no-store` を返す | — | ❌ 独自拡張 |
 
 レスポンスヘッダー:
@@ -70,6 +71,8 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | N | N | Y | 5xx | （fallbackなし）オリジンエラー | `L1=MISS, L2=MISS, ORI=ERR` | 502 | `max-age=120, must-revalidate` |
 | N | N | Y | timeout | （fallbackあり）オリジンエラー | `L1=MISS, L2=MISS, ORI=TIMEOUT, L1=FALLBACK`| 200 | `max-age=86400` |
 | N | N | Y | 4xx or 5xx | （fallbackあり）オリジンエラー | `L1=MISS, L2=MISS, ORI=ERR, L1=FALLBACK` | 200 | `max-age=86400` |
+| N | N | Y | 200 | （fallbackなし）変換失敗（デコード不可等） | `L1=MISS, L2=MISS, ORI=200, ORI=ERR` | 502 | `max-age=120, must-revalidate` |
+| N | N | Y | 200 | （fallbackあり）変換失敗時は元画像をそのまま返す | `L1=MISS, L2=MISS, ORI=200, L1=FALLBACK` | 200 | `max-age=86400` |
 | Y (Negative/410) | - | N | - | L1 Negativeヒット（410） | `L1=HIT/NEGATIVE4XX` | 410 | `max-age=31536000, immutable` |
 | Y (Negative/4xx) | - | N | - | L1 Negativeヒット（4xx、410以外） | `L1=HIT/NEGATIVE4XX` | オリジンの値を引き継ぐ | `max-age=1800` |
 | Y (Negative/5xx) | - | N | - | L1 Negativeヒット（5xx） | `L1=HIT/NEGATIVE5XX` | 502 | `max-age=120, must-revalidate` |
@@ -100,6 +103,24 @@ variant ごとに返す画像を環境変数で上書き可能（未設定時は
 | その他 | カラーバー画像 | `FALLBACK_DEFAULT` |
 
 環境変数にはファイルパスまたは base64 エンコード済み画像データを指定する。
+
+`ogp=1` は fallback 用画像を持たず「その他」（`FALLBACK_DEFAULT`）を使う。ただし OG カード用途では変換失敗時にダミー画像より元画像の方が有用なため、`fallback` 指定時の変換失敗は元画像をそのまま返す（上記仕様表参照）。
+
+### OGカード用プリセット（`ogp=1`）
+
+X（Twitter）は OG カード画像に AVIF 非対応（JPG / PNG / WebP / GIF のみ）。SHAMEZO のように AVIF で生成された画像を `og:image` / `twitter:image` に渡してもカードが表示されないため、`ogp=1` を付けてこのプロキシ経由で WebP 化する。
+
+- 出力は常に WebP（`Content-Type: image/webp`）。`.avif` 拡張子を指定しても WebP になる。
+- 幅の上限は 1200px。縦長画像は幅1200pxに合わせて縮小され、高さはそれに応じる（例: 3:4 なら 1200×1600）。極端な縦長でも X の上限に収めるため高さは 4096px を上限とする。
+- アスペクト比維持・クロップなし。元画像が上限より小さい場合は拡大せず WebP 化のみ行う。
+- EXIF 等のメタデータは除去する。
+- 品質は `CONVERT_WEBP_QUALITY`（デフォルト 80）を使用。幅1200px WebP は X の 5MB 上限に十分収まる。
+
+利用側（SHAMEZO）は数値を持たず、元画像URLを URL エンコードして `ogp=1` を付けるだけでよい:
+
+```
+/proxy/image.webp?url=<encodeURIComponent(元画像URL)>&ogp=1&fallback
+```
 
 Misskey への設定: `default.yml` に `mediaProxy: https://your-proxy.example.com` を追記するだけ。
 
@@ -135,7 +156,7 @@ GET /proxy/{filename}?url=...&avatar=1
         │
         ▼
 [handler/proxy.go]
-  1.  クエリパース   → Variant（emoji/avatar/preview/badge/static/raw）+ wantFallback + debug フラグ
+  1.  クエリパース   → Variant（emoji/avatar/preview/badge/static/ogp/raw）+ wantFallback + debug フラグ
       ファイル名拡張子パース → OutputFormat（.avif → AVIF、それ以外 → WebP）
       AVIF非対応 variant（badge/static/raw）の場合は WebP にフォールバック
   2.  スキーム検証   → http/https 以外は即 403
@@ -160,6 +181,9 @@ GET /proxy/{filename}?url=...&avatar=1
               image/* / video/* / audio/* 以外 → Nmd-Cache="...DENY/BAD_CONTENT"、422 を返す
               キャッシュは行わない（オリジンのエラーではなくプロキシ側の判断のため Negative Cache にも記録しない）
        e. converter.Convert() → variant に応じた WebP/PNG 変換（セマフォで同時実行数制限）
+              変換失敗（デコード不可等）の場合:
+                  wantFallback=true → 元画像をそのまま 200 で返却（キャッシュしない）
+                  wantFallback=false → 502 返却
        f. L1 書き込み（非同期）、L2 書き込み（非同期・fire-and-forget）、AccessTracker 更新（非同期）
        f. singleflight 共有値: {data, contentType, fetchDur, convertDur}
           → 待機していた全リクエストが同じ値を受け取り、それぞれ独立してレスポンスを書く
