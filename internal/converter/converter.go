@@ -9,6 +9,7 @@ import (
 
 	"github.com/h2non/bimg"
 	"github.com/highemerly/media-delivery/internal/format"
+	"github.com/highemerly/media-delivery/internal/imageinfo"
 	"github.com/highemerly/media-delivery/internal/variant"
 )
 
@@ -20,6 +21,10 @@ type Request struct {
 	// AVIF is supported only for emoji, avatar, and preview variants;
 	// other variants ignore this field and use their fixed output format.
 	Format  format.OutputFormat
+	// NoAnimation forces a still image even for an animated source.
+	// Set from ?static on the emoji/avatar variants; other variants always
+	// produce a still image and ignore this field.
+	NoAnimation bool
 }
 
 // Result is the output of a conversion.
@@ -41,6 +46,10 @@ type Config struct {
 	AnimQuality    int
 	AVIFQuality    int
 	AVIFSpeed      int
+	// AnimMaxSize caps the size of an animated source that emoji/avatar will
+	// pass through unchanged. Larger animations are flattened to a still image
+	// instead, so a huge GIF never gets re-served as an avatar.
+	AnimMaxSize int64
 }
 
 // BimgConverter uses libvips via bimg for image processing.
@@ -81,19 +90,21 @@ func (c *BimgConverter) Convert(ctx context.Context, req Request) (*Result, erro
 	switch req.Variant {
 	case variant.Raw:
 		// No conversion: return original data with detected MIME type.
-		mime := bimg.DetermineImageTypeName(req.Data)
-		if mime == "" {
-			mime = "application/octet-stream"
-		}
-		return &Result{Data: req.Data, ContentType: "image/" + mime}, nil
+		return passthrough(req.Data), nil
 
 	case variant.Badge:
 		return c.convertPNG(req.Data, 96, 96)
 
 	case variant.Emoji:
+		if c.keepAnimation(req) {
+			return passthrough(req.Data), nil
+		}
 		return c.convertToFormat(req.Data, 128, 128, req.Format)
 
 	case variant.Avatar:
+		if c.keepAnimation(req) {
+			return passthrough(req.Data), nil
+		}
 		return c.convertToFormat(req.Data, 320, 320, req.Format)
 
 	case variant.Preview:
@@ -108,6 +119,34 @@ func (c *BimgConverter) Convert(ctx context.Context, req Request) (*Result, erro
 	default:
 		return nil, fmt.Errorf("converter: unknown variant %v", req.Variant)
 	}
+}
+
+// keepAnimation reports whether an emoji/avatar request must be served as the
+// unmodified original instead of being converted.
+//
+// libvips decodes only the first frame of any animated source (bimg never
+// passes n=-1 to the loaders, and pngload cannot read APNG frames at all), so
+// converting would silently turn an animated custom emoji or avatar into a
+// still image. Passing the original through preserves the animation — the same
+// thing Misskey's media-proxy does for emoji/avatar. ?static=1 opts out, and
+// sources larger than AnimMaxSize fall back to conversion.
+func (c *BimgConverter) keepAnimation(req Request) bool {
+	if req.NoAnimation {
+		return false
+	}
+	if c.cfg.AnimMaxSize > 0 && int64(len(req.Data)) > c.cfg.AnimMaxSize {
+		return false
+	}
+	return imageinfo.IsAnimated(req.Data)
+}
+
+// passthrough returns the input unchanged with its detected MIME type.
+func passthrough(data []byte) *Result {
+	mime := bimg.DetermineImageTypeName(data)
+	if mime == "" {
+		return &Result{Data: data, ContentType: "application/octet-stream"}
+	}
+	return &Result{Data: data, ContentType: "image/" + mime}
 }
 
 // convertStatic extracts the first frame of an animated image (GIF/WebP)

@@ -221,13 +221,13 @@ if hdr[:8] == b'\x89PNG\r\n\x1a\n':
 elif hdr[:4] == b'RIFF' and hdr[8:12] == b'WEBP':
     chunk = hdr[12:16]
     if chunk == b'VP8 ':
-        # Lossy: skip 10 bytes of bitstream header, then 14 bits W, 14 bits H
+        # Lossy: 3-byte frame tag + 3-byte start code (0x9d012a), then
+        # 14 bits W, 14 bits H (each in a little-endian uint16)
         with open(path, 'rb') as f:
             f.seek(20)
-            data = f.read(6)
-        # 3-byte start code check: 0x9d012a
-        w = (struct.unpack('<H', data[3:5])[0] & 0x3fff)
-        h = (struct.unpack('<H', data[5:7])[0] & 0x3fff)
+            data = f.read(10)
+        w = (struct.unpack('<H', data[6:8])[0] & 0x3fff)
+        h = (struct.unpack('<H', data[8:10])[0] & 0x3fff)
         print(f"{w}x{h}")
     elif chunk == b'VP8L':
         with open(path, 'rb') as f:
@@ -246,6 +246,10 @@ elif hdr[:4] == b'RIFF' and hdr[8:12] == b'WEBP':
         print(f"{w}x{h}")
     else:
         print("unknown_webp")
+# GIF: 6-byte signature + logical screen descriptor (W, H as LE uint16)
+elif hdr[:6] in (b'GIF87a', b'GIF89a'):
+    w, h = struct.unpack('<HH', hdr[6:10])
+    print(f"{w}x{h}")
 # JPEG
 elif hdr[:2] == b'\xff\xd8':
     with open(path, 'rb') as f:
@@ -317,6 +321,58 @@ else:
     print(f"  [FAIL] {label}: {aw}x{ah} does not preserve aspect ratio of {ow}x{oh} (expected height ~{expected_h})")
     sys.exit(1)
 EOF
+}
+
+# is_animated_image <file>
+# Prints "yes" when the file is an APNG / animated GIF / animated WebP.
+# Container-level check only (no decoding): APNG → acTL chunk, GIF → 2+ frames,
+# WebP → ANIM chunk.
+is_animated_image() {
+  python3 - "$1" <<'EOF'
+import sys
+
+with open(sys.argv[1], 'rb') as f:
+    data = f.read()
+
+animated = False
+if data[:8] == b'\x89PNG\r\n\x1a\n':
+    head = data.split(b'IDAT', 1)[0]
+    animated = b'acTL' in head
+elif data[:6] in (b'GIF87a', b'GIF89a'):
+    # Graphics Control Extension appears once per frame; the NETSCAPE
+    # application extension is only written for looping animations.
+    animated = data.count(b'\x21\xf9\x04') >= 2 or b'NETSCAPE2.0' in data
+elif data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+    animated = b'ANIM' in data
+
+print("yes" if animated else "no")
+EOF
+}
+
+# assert_animated <file> <label>
+assert_animated() {
+  local file="$1" label="$2" actual
+  actual=$(is_animated_image "$file")
+  if [ "$actual" = "yes" ]; then
+    echo "  [OK] ${label}: animation preserved"
+    return 0
+  else
+    echo "  [FAIL] ${label}: expected an animated image, got a still image"
+    return 1
+  fi
+}
+
+# assert_not_animated <file> <label>
+assert_not_animated() {
+  local file="$1" label="$2" actual
+  actual=$(is_animated_image "$file")
+  if [ "$actual" = "no" ]; then
+    echo "  [OK] ${label}: still image"
+    return 0
+  else
+    echo "  [FAIL] ${label}: expected a still image, got an animated image"
+    return 1
+  fi
 }
 
 # run_test <name> <function>

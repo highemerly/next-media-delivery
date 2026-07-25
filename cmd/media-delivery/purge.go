@@ -49,7 +49,8 @@ func newPurgeCmd() *cobra.Command {
 
 	cmd.Flags().IntVar(&adminPort, "admin-port", 3001, "Admin server port")
 	cmd.Flags().StringVar(&rawURL, "url", "", "Origin URL to purge")
-	cmd.Flags().StringVar(&variantStr, "variant", "", "Variant to purge (raw/emoji/avatar/preview/badge/static)")
+	cmd.Flags().StringVar(&variantStr, "variant", "",
+		"Variant to purge (raw/emoji/avatar/preview/badge/static/ogp/emoji-static/avatar-static)")
 	cmd.Flags().BoolVar(&allVariants, "all-variants", false, "Purge all variants for --url")
 	cmd.Flags().BoolVar(&all, "all", false, "Purge entire cache")
 	return cmd
@@ -70,16 +71,12 @@ func purgeKey(base, key string) error {
 }
 
 func purgeAllVariants(base, rawURL string) error {
-	variants := []variant.Variant{
-		variant.Raw, variant.Emoji, variant.Avatar,
-		variant.Preview, variant.Badge, variant.Static,
-	}
 	formats := []format.OutputFormat{format.WebP, format.AVIF}
-	for _, v := range variants {
+	for _, v := range variant.AllCacheStrings() {
 		for _, f := range formats {
-			key := cachekey.Compute(rawURL, v.String(), f.String())
+			key := cachekey.Compute(rawURL, v, f.String())
 			if err := purgeKey(base, key); err != nil {
-				fmt.Printf("skip %s/%s: %v\n", v.String(), f.String(), err)
+				fmt.Printf("skip %s/%s: %v\n", v, f.String(), err)
 			}
 		}
 	}

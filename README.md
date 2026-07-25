@@ -23,9 +23,9 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | パラメータ | 効果 | 出力 | Misskey互換 |
 |---|---|---|---|
 | `url=` | プロキシ対象URL（必須） | — | ✅ |
-| `emoji=1` | 絵文字用縮小 | 128×128以下 WebP または AVIF | ✅ |
-| `avatar=1` | アバター用縮小 | 320×320以下 WebP または AVIF | ✅ |
-| `static=1` | アニメーション先頭フレームのみ | WebP静止画 | ✅ |
+| `emoji=1` | 絵文字用縮小。アニメーション画像（APNG / GIF / WebP）は原本をそのまま返す（下記参照） | 128×128以下 WebP または AVIF / アニメーション時は原本 | ✅ |
+| `avatar=1` | アバター用縮小。アニメーション画像（APNG / GIF / WebP）は原本をそのまま返す（下記参照） | 320×320以下 WebP または AVIF / アニメーション時は原本 | ✅ |
+| `static=1` | アニメーション先頭フレームのみ。`emoji=1` / `avatar=1` と併用した場合は縮小しつつ静止画化する | WebP静止画 | ✅ |
 | `preview=1` | プレビュー用縮小 | 200×200以下 WebP または AVIF | ✅ |
 | `badge=1` | Webプッシュ通知バッジ | 96×96 PNG | ✅ |
 | `ogp=1` | OGカード用縮小（X/Twitter が AVIF 非対応のため WebP 化） | 幅1200px以下 WebP（縦長は例: 1200×1600）。クロップなし・アスペクト比維持・拡大なし・メタデータ除去 | ❌ 独自拡張 |
@@ -106,6 +106,24 @@ variant ごとに返す画像を環境変数で上書き可能（未設定時は
 
 `ogp=1` は fallback 用画像を持たず「その他」（`FALLBACK_DEFAULT`）を使う。ただし OG カード用途では変換失敗時にダミー画像より元画像の方が有用なため、`fallback` 指定時の変換失敗は元画像をそのまま返す（上記仕様表参照）。
 
+### アニメーション画像の扱い
+
+libvips（bimg 経由）はアニメーションの2フレーム目以降をデコードできない。bimg は各ローダに `n=-1` を渡さないため常に先頭フレームだけを読み、さらに `pngload` にはページ指定プロパティ自体が存在しないため **APNG は出力フォーマットに関係なくアニメーションを復元できない**。そのまま変換すると、アニメーション付きのカスタム絵文字やアバターが黙って静止画になる。
+
+そこで **`emoji=1` / `avatar=1` は、入力がアニメーション画像（APNG / アニメーションGIF / アニメーションWebP）の場合は変換せず原本をそのまま返す**（Misskey の media-proxy と同じ挙動）。
+
+| 条件 | 挙動 |
+|---|---|
+| `emoji=1` / `avatar=1` + アニメーション入力 | 原本をそのまま返す。`Content-Type` は入力のMIMEタイプ（`image/png` / `image/gif` / `image/webp`）。縮小もフォーマット変換もしない（`.avif` 指定時も原本を返す） |
+| `emoji=1` / `avatar=1` + `static=1` | 従来通り縮小＋WebP／AVIF 変換（静止画） |
+| `emoji=1` / `avatar=1` + アニメーション入力が `CONVERT_ANIM_MAX_SIZE` 超 | 原本を返さず従来通り変換（静止画）。巨大なGIFをアバターとして再配信しないための上限 |
+| `preview=1` / `badge=1` / `static=1` / `ogp=1` | 常に静止画（先頭フレーム） |
+| 変換なし（rawアクセス） | 従来通り原本をそのまま返す（アニメーション維持） |
+
+アニメーション判定はコンテナのバイト列のみで行う（APNG は `acTL` チャンク、GIF は画像記述子が2個以上、WebP は `ANIM` チャンク）。デコードは行わないため追加コストはほぼない。
+
+`emoji=1` と `emoji=1&static=1` は同じ URL でも異なるバイト列を返すため、キャッシュキーの variant は `emoji` / `emoji-static`（avatar も同様）に分かれる。
+
 ### OGカード用プリセット（`ogp=1`）
 
 X（Twitter）は OG カード画像に AVIF 非対応（JPG / PNG / WebP / GIF のみ）。SHAMEZO のように AVIF で生成された画像を `og:image` / `twitter:image` に渡してもカードが表示されないため、`ogp=1` を付けてこのプロキシ経由で WebP 化する。
@@ -156,11 +174,14 @@ GET /proxy/{filename}?url=...&avatar=1
         │
         ▼
 [handler/proxy.go]
-  1.  クエリパース   → Variant（emoji/avatar/preview/badge/static/ogp/raw）+ wantFallback + debug フラグ
+  1.  クエリパース   → Variant（emoji/avatar/preview/badge/static/ogp/raw）+ wantFallback + debug + noAnim フラグ
       ファイル名拡張子パース → OutputFormat（.avif → AVIF、それ以外 → WebP）
       AVIF非対応 variant（badge/static/raw）の場合は WebP にフォールバック
+      noAnim は `static` パラメータの有無。emoji/avatar と併用された場合に
+      アニメーション原本パススルーを抑止する
   2.  スキーム検証   → http/https 以外は即 403
   3.  キャッシュキー → SHA256(url + "|" + variant + "|" + format)
+      variant は emoji/avatar + noAnim の場合のみ emoji-static/avatar-static
   4.  NegativeCache  → HIT: Nmd-Cache="L1=HIT/NEGATIVE4XX|5XX"、404/503 を返す
   6.  CircuitBreaker → DENY: Nmd-Cache="L1=DENY/WAIT"、503 を返す
   7.  Blacklist      → DENY: Nmd-Cache="L1=DENY/BAD_DOMAIN"、403 を返す
@@ -181,6 +202,8 @@ GET /proxy/{filename}?url=...&avatar=1
               image/* / video/* / audio/* 以外 → Nmd-Cache="...DENY/BAD_CONTENT"、422 を返す
               キャッシュは行わない（オリジンのエラーではなくプロキシ側の判断のため Negative Cache にも記録しない）
        e. converter.Convert() → variant に応じた WebP/PNG 変換（セマフォで同時実行数制限）
+              emoji/avatar かつアニメーション入力（noAnim なし・サイズ上限内）の場合は
+                  変換せず原本をそのまま返す
               変換失敗（デコード不可等）の場合:
                   wantFallback=true → 元画像をそのまま 200 で返却（キャッシュしない）
                   wantFallback=false → 502 返却
@@ -232,13 +255,16 @@ Pod 再起動でマップは消えるが許容範囲（再起動後もアクセ�
 URL・variant・出力フォーマットの組み合わせで SHA-256 を取る。
 
 ```
-key = SHA256(url + "|" + "avatar" + "|" + "webp")  // avatar WebP 用
-key = SHA256(url + "|" + "avatar" + "|" + "avif")  // avatar AVIF 用
-key = SHA256(url + "|" + "emoji"  + "|" + "webp")  // emoji 用
-key = SHA256(url + "|" + "raw"    + "|" + "webp")  // 無変換
+key = SHA256(url + "|" + "avatar"       + "|" + "webp")  // avatar WebP 用
+key = SHA256(url + "|" + "avatar"       + "|" + "avif")  // avatar AVIF 用
+key = SHA256(url + "|" + "emoji"        + "|" + "webp")  // emoji 用
+key = SHA256(url + "|" + "emoji-static" + "|" + "webp")  // emoji + static=1 用
+key = SHA256(url + "|" + "raw"          + "|" + "webp")  // 無変換
 ```
 
 同じ URL・variant でもフォーマットが異なれば別エントリとして保存される。
+
+variant 文字列は `raw` / `emoji` / `avatar` / `preview` / `badge` / `static` / `ogp` に加え、`emoji-static` / `avatar-static` の9種類。`emoji` / `avatar` はアニメーション入力を原本のまま返すのに対し `emoji-static` / `avatar-static` は静止画を返すため、別エントリとして分離する必要がある（[アニメーション画像の扱い](#アニメーション画像の扱い)参照）。
 
 ### 同時リクエストの重複排除（singleflight）
 
@@ -433,9 +459,10 @@ DELETE /cache                 全キャッシュ削除
 
 ```bash
 # 特定URL・バリアントのキャッシュを削除（L1・L2両方）
+# --variant: raw/emoji/avatar/preview/badge/static/ogp/emoji-static/avatar-static
 media-delivery purge --url "https://example.com/image.png" --variant avatar
 
-# 特定URLの全バリアントを削除
+# 特定URLの全バリアント（上記9種 × WebP/AVIF）を削除
 media-delivery purge --url "https://example.com/image.png" --all-variants
 
 # キャッシュを全削除
@@ -540,7 +567,8 @@ Negative Cache (142 entries):
 | `CONVERT_CONCURRENCY` | CPU コア数 | 画像変換の同時実行数上限 |
 | `CONVERT_WEBP_QUALITY` | `80` | WebP出力品質（1-100） |
 | `CONVERT_PNG_COMPRESSION` | `6` | PNG圧縮レベル（0-9） |
-| `CONVERT_ANIM_QUALITY` | `75` | アニメーションWebP出力品質（1-100） |
+| `CONVERT_ANIM_QUALITY` | `75` | アニメーションWebP出力品質（1-100）。※アニメーションWebP出力は未実装のため現状未使用 |
+| `CONVERT_ANIM_MAX_SIZE` | `8MiB` | `emoji=1` / `avatar=1` でアニメーション原本をそのまま返す上限サイズ。超過時は従来通り静止画に変換する |
 | `CONVERT_AVIF_QUALITY` | `60` | AVIF出力品質（1-100） |
 | `CONVERT_AVIF_SPEED` | `6` | AVIFエンコード速度（0-8、高いほど速い・低圧縮） |
 | `NEGATIVE_CACHE_TTL_40X` | `24h` | 40x の Negative Cache TTL |
@@ -718,7 +746,8 @@ Go + bimg（libvips wrapper）を使用。
 - 出力: WebP または AVIF（badge=1 のみ PNG 固定）
   - `.avif` 拡張子指定時: emoji / avatar / preview → AVIF 出力
   - その他: WebP 出力（従来動作）
-- アニメーション: static=1 指定時のみ先頭フレーム抽出
+- アニメーション: 変換を伴う variant はすべて先頭フレームのみになる（libvips の制約。[アニメーション画像の扱い](#アニメーション画像の扱い)参照）。
+  emoji=1 / avatar=1 はアニメーション入力を変換せず原本のまま返すことでアニメーションを維持する
 - 変換パラメータなし（rawアクセス）の場合は変換スキップ、オリジナルをそのまま返す
 
 ### 変換の同時実行数制限（セマフォ）

@@ -23,6 +23,9 @@
 - admin HTTP ポート（3001、localhost only）: stats / purge エンドポイント
 - stats / purge CLI（admin エンドポイントの HTTP ラッパー）
 
+### 制約（ライブラリ由来・回避策で対応済み）
+- **アニメーション変換不可**: bimg は libvips のローダに `n=-1` を渡さないため常に先頭フレームのみをデコードする。さらに `pngload` にはページ指定プロパティが存在せず、APNG はアニメーションを読めない。対応として `emoji=1` / `avatar=1` はアニメーション入力（`internal/imageinfo` で判定）を変換せず原本のまま返す。アニメーションを保ったままの縮小・WebP 化を実装するには bimg → govips 移行（GIF/WebP のみ）＋ APNG は別デコーダが必要
+
 ### 未実装（Phase 3）
 - **L2 キャッシュ（S3）**: インターフェース (`internal/cache/l2/l2.go`) と NoopStore のみ実装済み。`S3_ENABLED=true` 時の実際の S3 実装（`internal/cache/l2/s3.go`）が未実装
 - **Redis バックエンド**: 設定（`STORE_BACKEND=redis`、`REDIS_ADDR` 等）は実装済みだが、NegativeCache・CircuitBreaker の Redis 実装（`internal/store/redis/`）が未実装。現状は `STORE_BACKEND=memory` のみ動作する

@@ -75,6 +75,7 @@ type ConvertConfig struct {
 	AnimQuality    int
 	AVIFQuality    int
 	AVIFSpeed      int
+	AnimMaxSize    int64
 }
 
 type FallbackConfig struct {
@@ -150,6 +151,7 @@ func Load() (*Config, error) {
 	cfg.Convert.WebPQuality = getEnvInt("CONVERT_WEBP_QUALITY", 80)
 	cfg.Convert.PNGCompression = getEnvInt("CONVERT_PNG_COMPRESSION", 6)
 	cfg.Convert.AnimQuality = getEnvInt("CONVERT_ANIM_QUALITY", 75)
+	cfg.Convert.AnimMaxSize = getEnvBytes("CONVERT_ANIM_MAX_SIZE", 8*1024*1024) // 8MiB
 	cfg.Convert.AVIFQuality = getEnvInt("CONVERT_AVIF_QUALITY", 60)
 	cfg.Convert.AVIFSpeed = getEnvInt("CONVERT_AVIF_SPEED", 6)
 

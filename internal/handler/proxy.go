@@ -80,6 +80,10 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	v := parsed.Variant
 	wantFallback := parsed.WantFallback
 	debug := parsed.Debug
+	// vkey is the variant label used for the cache key and the Nmd-Cache-Key
+	// v= field. emoji/avatar with ?static=1 get their own label because they
+	// pass an animated source through unchanged without it.
+	vkey := v.CacheString(parsed.NoAnim)
 
 	// Derive output format from the filename extension in the URL path.
 	// e.g. /proxy/avatar.avif → AVIF, /proxy/avatar.webp → WebP (default).
@@ -102,12 +106,12 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusForbidden,
 			h.deps.Cfg.Cache.ControlDeny,
 			"L1=DENY/BAD_REQ",
-			"", v.String())
+			"", vkey)
 		return
 	}
 
 	// 3. Compute cache key.
-	key := cachekey.Compute(rawURL, v.String(), f.String())
+	key := cachekey.Compute(rawURL, vkey, f.String())
 
 	ctx := r.Context()
 
@@ -125,12 +129,12 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				XCache:       xcache + ", L1=FALLBACK",
 				CacheKey:     key,
 				LastModified: time.Now(),
-				Variant:      v.String(),
+				Variant:      vkey,
 			})
 			return
 		}
 		cc, httpStatus := errorCacheControl(h.deps.Cfg, negEntry.Status)
-		response.WriteError(w, httpStatus, cc, xcache, key, v.String())
+		response.WriteError(w, httpStatus, cc, xcache, key, vkey)
 		return
 	}
 
@@ -140,7 +144,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusServiceUnavailable,
 			"max-age=1800",
 			"L1=DENY/WAIT",
-			key, v.String())
+			key, vkey)
 		return
 	}
 
@@ -149,7 +153,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusForbidden,
 			h.deps.Cfg.Cache.ControlDeny,
 			"L1=DENY/BAD_DOMAIN",
-			key, v.String())
+			key, vkey)
 		return
 	}
 
@@ -169,7 +173,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					Cacheable:    true,
 					LastModified: entry.StoredAt,
 					ETag:         etag,
-					Variant:      v.String(),
+					Variant:      vkey,
 				})
 				return
 			}
@@ -184,7 +188,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				LastModified: entry.StoredAt,
 				ETag:         etag,
 				OriginalURL:  rawURL,
-				Variant:      v.String(),
+				Variant:      vkey,
 			})
 			return
 		} else if err != nil {
@@ -209,7 +213,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						Cacheable:    true,
 						LastModified: obj.StoredAt,
 						OriginalURL:  rawURL,
-						Variant:      v.String(),
+						Variant:      vkey,
 					})
 					return
 				}
@@ -222,9 +226,9 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// debug=true bypasses singleflight to ensure a fresh request every time.
 	var sfVal *sfResult
 	if debug {
-		val, err := h.originFetch(ctx, key, rawURL, v, f, domain, debug)
+		val, err := h.originFetch(ctx, key, rawURL, v, f, domain, debug, parsed.NoAnim)
 		if err != nil {
-			h.handleOriginError(ctx, w, key, rawURL, err, xcachePrefix, wantFallback, 0, v)
+			h.handleOriginError(ctx, w, key, rawURL, err, xcachePrefix, wantFallback, 0, v, vkey)
 			return
 		}
 		sfVal = val
@@ -237,14 +241,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// point keeping an origin request alive when the triggering caller is
 		// already gone.
 		ch := h.sf.DoChan(key, func() (interface{}, error) {
-			return h.originFetch(ctx, key, rawURL, v, f, domain, debug)
+			return h.originFetch(ctx, key, rawURL, v, f, domain, debug, parsed.NoAnim)
 		})
 		select {
 		case res := <-ch:
 			if res.Err != nil {
 				// Covers both origin errors and ctx cancellation propagated
 				// through originFetch (e.g. REQUEST_TIMEOUT, client disconnect).
-				h.handleOriginError(ctx, w, key, rawURL, res.Err, xcachePrefix, wantFallback, 0, v)
+				h.handleOriginError(ctx, w, key, rawURL, res.Err, xcachePrefix, wantFallback, 0, v, vkey)
 				return
 			}
 			sfVal = res.Val.(*sfResult)
@@ -256,14 +260,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.WriteError(w, http.StatusGatewayTimeout,
 				h.deps.Cfg.Cache.Control5XX,
 				xcachePrefix+", ORI=TIMEOUT",
-				key, v.String())
+				key, vkey)
 			return
 		}
 	}
 
 	// Origin returned an error (4xx/5xx); fetchDur is still valid.
 	if sfVal.originErr != nil {
-		h.handleOriginError(ctx, w, key, rawURL, sfVal.originErr, xcachePrefix, wantFallback, sfVal.fetchDur, v)
+		h.handleOriginError(ctx, w, key, rawURL, sfVal.originErr, xcachePrefix, wantFallback, sfVal.fetchDur, v, vkey)
 		return
 	}
 
@@ -292,7 +296,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ETag:           weakETag(now, int64(len(sfVal.data))),
 		OriginalURL:    rawURL,
 		Debug:          debug,
-		Variant:        v.String(),
+		Variant:        vkey,
 		OriginalSize:   sfVal.originSize,
 		OriginalFormat: sfVal.originFormat,
 	})
@@ -300,7 +304,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // originFetch performs the actual fetch + convert pipeline.
 // Called inside singleflight, so it runs at most once per key per burst.
-func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v variant.Variant, f format.OutputFormat, domain string, debug bool) (*sfResult, error) {
+func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v variant.Variant, f format.OutputFormat, domain string, debug, noAnim bool) (*sfResult, error) {
 	// Fetch.
 	t0 := time.Now()
 	result, err := h.deps.Fetcher.Fetch(ctx, rawURL)
@@ -346,7 +350,7 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 	var contentType string
 	var originFormat string
 	if v.NeedsConversion() {
-		conv, err := h.deps.Converter.Convert(ctx, converter.Request{Data: body, Variant: v, Format: f})
+		conv, err := h.deps.Converter.Convert(ctx, converter.Request{Data: body, Variant: v, Format: f, NoAnimation: noAnim})
 		if err != nil {
 			slog.Error("conversion failed", "variant", v, "err", err)
 			// Preserve the original bytes so that ?fallback can serve them
@@ -387,7 +391,7 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 	}, nil
 }
 
-func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWriter, key, rawURL string, err error, xcachePrefix string, wantFallback bool, fetchDur time.Duration, v variant.Variant) {
+func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWriter, key, rawURL string, err error, xcachePrefix string, wantFallback bool, fetchDur time.Duration, v variant.Variant, vkey string) {
 	// File too large: 413, no fallback, no cache.
 	if _, ok := err.(*fileTooLargeError); ok {
 		slog.Warn("origin response too large", "url", rawURL)
@@ -398,7 +402,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
-			Variant:      v.String(),
+			Variant:      vkey,
 		})
 		return
 	}
@@ -418,7 +422,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 				CacheKey:     key,
 				FetchDur:     fetchDur,
 				LastModified: time.Now(),
-				Variant:      v.String(),
+				Variant:      vkey,
 			})
 			return
 		}
@@ -429,7 +433,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
-			Variant:      v.String(),
+			Variant:      vkey,
 		})
 		return
 	}
@@ -449,7 +453,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 				CacheKey:     key,
 				FetchDur:     fetchDur,
 				LastModified: time.Now(),
-				Variant:      v.String(),
+				Variant:      vkey,
 			})
 			return
 		}
@@ -461,7 +465,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
-			Variant:      v.String(),
+			Variant:      vkey,
 		})
 		return
 	}
@@ -479,7 +483,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
-			Variant:      v.String(),
+			Variant:      vkey,
 		})
 		return
 	}
@@ -498,7 +502,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 				CacheKey:     key,
 				FetchDur:     fetchDur,
 				LastModified: time.Now(),
-				Variant:      v.String(),
+				Variant:      vkey,
 			})
 			return
 		}
@@ -509,7 +513,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 			CacheKey:     key,
 			FetchDur:     fetchDur,
 			LastModified: time.Now(),
-			Variant:      v.String(),
+			Variant:      vkey,
 		})
 		return
 	}
@@ -522,7 +526,7 @@ func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWri
 		CacheKey:     key,
 		FetchDur:     fetchDur,
 		LastModified: time.Now(),
-		Variant:      v.String(),
+		Variant:      vkey,
 	})
 }
 
