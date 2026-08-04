@@ -24,6 +24,7 @@ import (
 	"github.com/highemerly/media-delivery/internal/fallback"
 	"github.com/highemerly/media-delivery/internal/fetcher"
 	"github.com/highemerly/media-delivery/internal/format"
+	"github.com/highemerly/media-delivery/internal/imageinfo"
 	"github.com/highemerly/media-delivery/internal/response"
 	"github.com/highemerly/media-delivery/internal/store"
 	"github.com/highemerly/media-delivery/internal/variant"
@@ -336,7 +337,20 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 	h.deps.Circuit.RecordSuccess(ctx, domain) //nolint:errcheck
 
 	// Content-Type check: reject non-image/video/audio responses unless debug.
-	if !debug && !isAllowedContentType(result.ContentType) {
+	//
+	// Object storage origins (Backblaze B2, S3) commonly serve media under a
+	// generic binary/octet-stream type, so a disallowed header is not decisive
+	// on its own: sniff the magic bytes and use the sniffed type instead when
+	// the body really is media. A response whose bytes are not media (an HTML
+	// error page, JSON, …) still sniffs to "" and is rejected.
+	originCT := result.ContentType
+	if !isAllowedContentType(originCT) {
+		if sniffed := imageinfo.DetectContentType(body); sniffed != "" {
+			slog.Debug("origin content-type sniffed", "url", rawURL, "declared", result.ContentType, "sniffed", sniffed)
+			originCT = sniffed
+		}
+	}
+	if !debug && !isAllowedContentType(originCT) {
 		return &sfResult{
 			fetchDur:  fetchDur,
 			skipCache: true,
@@ -357,23 +371,23 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 			// as-is (200) instead of erroring. skipCache is set because the
 			// unconverted body must never populate the L1/L2 entry for this
 			// (url, variant, format) key.
-			originCT := result.ContentType
-			if originCT == "" {
-				originCT = "application/octet-stream"
+			ct := originCT
+			if ct == "" {
+				ct = "application/octet-stream"
 			}
 			return &sfResult{
 				fetchDur:   fetchDur,
 				convertDur: time.Since(t1),
 				skipCache:  true,
-				originErr:  &conversionError{body: body, contentType: originCT},
+				originErr:  &conversionError{body: body, contentType: ct},
 			}, nil
 		}
 		data = conv.Data
 		contentType = conv.ContentType
-		originFormat = result.ContentType
+		originFormat = originCT
 	} else {
 		data = body
-		contentType = result.ContentType
+		contentType = originCT
 		if contentType == "" {
 			contentType = "application/octet-stream"
 		}

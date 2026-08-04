@@ -50,7 +50,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `Nmd-Cache` | キャッシュヒット有無、エラー内容による（下記参照） | デバッグ用。常に出力。キャッシュ状況の確認用 |
 | `Nmd-Cache-Key` | `<SHA256>, v=<variant>, c=<y\|n>` | デバッグ用。常に出力。purge CLI との連携用。`c=y` はキャッシュ可能、`c=n` は不可 |
 | `Nmd-Info` | `NextMediaDelivery/<version>, <instance>` | デバッグ用。常に出力。バージョンとインスタンス識別子（`NMD_INSTANCE_ID` 環境変数。未設定時は `unknown`） |
-| `Nmd-Original` | `s=<size>, f=<MIME>` | オリジンフェッチかつ変換が発生した場合のみ出力。変換前のオリジン画像サイズ（バイト）とMIMEタイプ |
+| `Nmd-Original` | `s=<size>, f=<MIME>` | オリジンフェッチかつ変換が発生した場合のみ出力。変換前のオリジン画像サイズ（バイト）とMIMEタイプ。オリジンが `binary/octet-stream` 等を返した場合はマジックナンバーからの判定結果 |
 | `Server-Timing` | `nmdFetch;dur=143, nmdConvert;dur=28` | デバッグ用。フェッチ時間・変換時間（ms）。L1ヒット時は両方0 |
 | `Timing-Allow-Origin` | `*` | デバッグ用。クロスオリジンでも Server-Timing を参照可能にする |
 
@@ -63,7 +63,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | Y | - | N | - | L1ヒット + If-None-Match 一致（未変更） | `L1=HIT` | 304 | `max-age=31536000, immutable` |
 | N | Y | N | - | L2オブジェクトストレージヒット | `L1=MISS, L2=HIT` | 200 | `max-age=31536000, immutable` |
 | N | N | Y | 200 | オリジンで解決 | `L1=MISS, L2=MISS, ORI=200` | 200 | `max-age=31536000, immutable` |
-| N | N | Y | 200 | オリジン取得成功だが画像以外の Content-Type 応答 | `L1=MISS, L2=MISS, ORI=200, L1=DENY/BAD_CONTENT` | 422 | `max-age=86400` |
+| N | N | Y | 200 | オリジン取得成功だが画像以外の応答（Content-Type・実バイトの両方がメディアでない） | `L1=MISS, L2=MISS, ORI=200, L1=DENY/BAD_CONTENT` | 422 | `max-age=86400` |
 | N | N | Y | 410 |（fallbackなし）410 Gone | `L1=MISS, L2=MISS, ORI=ERR` | 410 | `max-age=31536000, immutable` |
 | N | N | Y | 4xx (410以外) |（fallbackなし）オリジンエラー | `L1=MISS, L2=MISS, ORI=ERR` | オリジンの値を引き継ぐ | `max-age=1800` |
 | N | N | Y | - | オリジン応答が MAX_FILE_SIZE 超過 | `L1=MISS, L2=MISS, ORI=200` | 413 | `max-age=86400` |
@@ -199,7 +199,9 @@ GET /proxy/{filename}?url=...&avatar=1
               wantFallback=false → 404/502 返却
        c. CircuitBreaker.RecordSuccess
        d. Content-Type チェック（`?debug` フラグなしの場合のみ）
-              image/* / video/* / audio/* 以外 → Nmd-Cache="...DENY/BAD_CONTENT"、422 を返す
+              Content-Type が image/* / video/* / audio/* 以外の場合はレスポンスボディの
+                  マジックバイトを判定し、メディアであればその判定結果を Content-Type として採用する
+              判定結果もメディアでない → Nmd-Cache="...DENY/BAD_CONTENT"、422 を返す
               キャッシュは行わない（オリジンのエラーではなくプロキシ側の判断のため Negative Cache にも記録しない）
        e. converter.Convert() → variant に応じた WebP/PNG 変換（セマフォで同時実行数制限）
               emoji/avatar かつアニメーション入力（noAnim なし・サイズ上限内）の場合は
@@ -650,6 +652,9 @@ k8s の liveness/readiness probe に使用。L1ディスクへの書き込み可
 オリジンが `image/*` / `video/*` / `audio/*` 以外の Content-Type（例: `text/html`）を返した場合、422 Unprocessable Entity を返してキャッシュも行わない。
 HTML エラーページや意図しないリソースを配信・キャッシュしないための対策。
 
+ただし Content-Type ヘッダだけでは判断しない。オブジェクトストレージ（Backblaze B2・S3 等）は実体が画像でも `binary/octet-stream` を返すことが多いため、ヘッダが非メディアの場合はレスポンスボディの先頭バイト（マジックナンバー）から MIME タイプを判定し、それが `image/*` / `video/*` / `audio/*` であれば受理する。判定できたタイプはレスポンスの `Content-Type`（変換なしの場合）および `Nmd-Original` の `f=` に使われる。
+
+- 判定対象は PNG / JPEG / GIF / WebP / AVIF / HEIF / MP4 等。ボディが HTML・JSON・プレーンテキストの場合は判定結果もメディアにならないため、従来どおり 422 となる
 - Negative Cache には記録しない（オリジンのエラーではなくプロキシ側の判断）
 - `?debug=<key>` クエリパラメータを付与するとチェックをスキップし、そのまま応答する（Misskey互換外の独自拡張）。`key` が環境変数 `DEBUG_KEY` と一致した場合のみ有効（`DEBUG_KEY` が未設定の場合は常に無効）
 - `debug` はContent-Typeチェックのバイパスに加え、L1/L2キャッシュの読み書きを行わない（originへ必ずフェッチする）。レスポンスには `Cache-Control: no-store` を付与する
