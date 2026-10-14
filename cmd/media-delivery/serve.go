@@ -142,6 +142,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	proxyMux.Handle("/proxy/", proxyChain)
 	proxyMux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Write(assets.RobotsTxt) //nolint:errcheck
 	})
 	proxyMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

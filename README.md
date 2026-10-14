@@ -613,11 +613,11 @@ volumes:
 ## robots.txt
 
 `GET /robots.txt` に対して静的レスポンスを返す。内容はバイナリに埋め込む。
+`Cache-Control: public, max-age=86400`（1日）を付与する。
+
+一般のクローラは拒否せず、AI 学習用クローラのみ全パスを Disallow する。
 
 ```
-User-agent: *
-Disallow: /
-
 User-agent: GPTBot
 Disallow: /
 
