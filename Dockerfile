@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage ----
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26.10-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libvips-dev \
