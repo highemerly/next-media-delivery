@@ -10,7 +10,7 @@
 source "$(dirname "$0")/lib.sh"
 
 ADMIN_BASE="http://127.0.0.1:${ADMIN_PORT:-3001}"
-ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
+ORIGIN_URL="${ORIGIN_BASE}/test-image.png"
 
 # コンテナ内で curl を実行するラッパー
 admin_curl() {

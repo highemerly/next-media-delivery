@@ -139,6 +139,16 @@ docker compose down
 
 `docker-compose.yml` の media-delivery のイメージは `E2E_IMAGE`（既定 `next-media-delivery:e2e`）。CI はビルド済み・push 済みのイメージを `E2E_IMAGE` で渡し、`--no-build` で起動する。
 
+テストの取得元はすべて compose の中にあり、インターネットには取りに行かない（08e の DNS エラーのテストを除く）：
+
+| サービス | 中身 | 使うテスト |
+|---|---|---|
+| `origin` | `./assets` を nginx の既定の Content-Type で配る。`lib.sh` の `ORIGIN_BASE`（既定 `http://origin`） | ほとんど全部 |
+| `octet-origin` | `./assets` を `binary/octet-stream` で配る（Content-Type の推定の確認） | 07 |
+| `httpbin` | リクエストヘッダーの確認など | 06 など |
+
+以前は `raw.githubusercontent.com` の main の `assets/` から取っていたが、GitHub の制限（429）で CI が落ち、ブランチで足した画像も使えなかった。そのかわり、本物の HTTPS の取得元への接続（runtime イメージの `ca-certificates` での証明書の検証など）は CI では確かめていない。
+
 ## リリース
 
 ### 手順

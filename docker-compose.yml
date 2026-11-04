@@ -8,6 +8,20 @@ services:
       retries: 15
       start_period: 10s
 
+  # Serves ./assets with normal Content-Types (nginx's default mime.types).
+  # The origin for the integration tests (ORIGIN_BASE in scripts/test/lib.sh),
+  # so they never fetch from the internet.
+  origin:
+    image: nginx:alpine
+    volumes:
+      - ./assets:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/test-image.png"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
   # Serves ./assets as binary/octet-stream, reproducing object storage origins
   # (B2/S3) that mislabel media. Used by test 07 for Content-Type sniffing.
   octet-origin:
@@ -36,6 +50,8 @@ services:
       - /cache
     depends_on:
       httpbin:
+        condition: service_healthy
+      origin:
         condition: service_healthy
       octet-origin:
         condition: service_healthy

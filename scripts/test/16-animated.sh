@@ -14,7 +14,7 @@
 #   キャッシュキーの variant は emoji / emoji-static に分かれる
 source "$(dirname "$0")/lib.sh"
 
-BASE_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets"
+BASE_URL="${ORIGIN_BASE}"
 
 # ---- emoji + APNG → 原本パススルー ----
 test_emoji_apng() {

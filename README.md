@@ -51,7 +51,7 @@ GET /proxy/{filename}?url={encoded_url}[&emoji=1][&avatar=1][&static=1][&preview
 | `Nmd-Cache-Key` | `<SHA256>, v=<variant>, c=<y\|n>` | デバッグ用。常に出力。purge CLI との連携用。`c=y` はキャッシュ可能、`c=n` は不可 |
 | `Nmd-Info` | `NextMediaDelivery/<version>, <instance>` | デバッグ用。常に出力。バージョンとインスタンス識別子（`NMD_INSTANCE_ID` 環境変数。未設定時は `unknown`） |
 | `Nmd-Original` | `s=<size>, f=<MIME>` | オリジンフェッチかつ変換が発生した場合のみ出力。変換前のオリジン画像サイズ（バイト）とMIMEタイプ。オリジンが `binary/octet-stream` 等を返した場合はマジックナンバーからの判定結果 |
-| `Server-Timing` | `nmdFetch;dur=143, nmdConvert;dur=28` | デバッグ用。フェッチ時間・変換時間（ms）。L1ヒット時は両方0 |
+| `Server-Timing` | `nmdFetch;dur=143.25, nmdConvert;dur=0.48` | デバッグ用。フェッチ時間・変換時間（ms。マイクロ秒の精度の小数で、末尾の0は省く）。L1ヒット時は両方0。フェッチ・変換したときは1ms未満でも0にならない（`0` は「していない」の意味だけに使う） |
 | `Timing-Allow-Origin` | `*` | デバッグ用。クロスオリジンでも Server-Timing を参照可能にする |
 
 レスポンスステータスコード、`Nmd-Cache`、`Cache-Control` の値:

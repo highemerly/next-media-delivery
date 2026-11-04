@@ -6,19 +6,19 @@
 #   Nmd-Cache      : L1=MISS, ORI=ERR, L1=FALLBACK
 #   Cache-Control  : max-age=86400
 #   Nmd-Cache-Key  : <sha256>, v=avatar, c=n  (fallback は非キャッシュ)
-#   Server-Timing  : nmdFetch;dur>=1
+#   Server-Timing  : nmdFetch;dur > 0
 #
 # 03b — WITHOUT ?fallback: origin 404 propagated as-is
 #   HTTP status    : 404
 #   Nmd-Cache      : L1=MISS, ORI=ERR
 #   Cache-Control  : max-age=3600
 #   Nmd-Cache-Key  : <sha256>, v=avatar, c=n  (エラーは非キャッシュ)
-#   Server-Timing  : nmdFetch;dur>=1
+#   Server-Timing  : nmdFetch;dur > 0
 source "$(dirname "$0")/lib.sh"
 
 # Use distinct filenames so negative-cache from 03a does not affect 03b
-ORIGIN_URL_A="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/03a-does-not-exist.png"
-ORIGIN_URL_B="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/03b-does-not-exist.png"
+ORIGIN_URL_A="${ORIGIN_BASE}/03a-does-not-exist.png"
+ORIGIN_URL_B="${ORIGIN_BASE}/03b-does-not-exist.png"
 
 test_fallback_with_flag() {
   local encoded url
@@ -40,7 +40,7 @@ test_fallback_with_flag() {
   assert_match       "^image/"                    "$ct"          "Content-Type"         || ok=1
   assert_eq          "L1=MISS, ORI=ERR, L1=FALLBACK" "$nc"      "Nmd-Cache"            || ok=1
   assert_eq          "max-age=86400"              "$cc"          "Cache-Control"        || ok=1
-  assert_server_timing_fetch_ge1                  "$st"          "Server-Timing fetch"  || ok=1
+  assert_server_timing_fetch_positive               "$st"          "Server-Timing fetch"  || ok=1
   assert_match       "^[0-9a-f]{64}, v=avatar, c=n$" "$ck"      "Nmd-Cache-Key c=n (fallback not cached)" || ok=1
   assert_header_absent "nmd-original"             "$RESP_HEADERS" "Nmd-Original absent (fallback)" || ok=1
 
@@ -65,7 +65,7 @@ test_no_fallback_404() {
   assert_http_status "404"           "$RESP_STATUS" "HTTP status"          || ok=1
   assert_eq          "L1=MISS, ORI=ERR" "$nc"        "Nmd-Cache"            || ok=1
   assert_eq          "max-age=3600" "$cc"            "Cache-Control"        || ok=1
-  assert_server_timing_fetch_ge1    "$st"            "Server-Timing fetch"  || ok=1
+  assert_server_timing_fetch_positive "$st"            "Server-Timing fetch"  || ok=1
   assert_match       "^[0-9a-f]{64}, v=avatar, c=n$" "$ck" "Nmd-Cache-Key c=n (error)" || ok=1
   assert_header_absent "nmd-original" "$RESP_HEADERS" "Nmd-Original absent (error)" || ok=1
 

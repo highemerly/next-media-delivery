@@ -16,8 +16,8 @@
 #   Nmd-Cache      : L1=MISS, ..., ORI
 source "$(dirname "$0")/lib.sh"
 
-ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
-ORIGIN_URL_MISS="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-large.png"
+ORIGIN_URL="${ORIGIN_BASE}/test-image.png"
+ORIGIN_URL_MISS="${ORIGIN_BASE}/test-large.png"
 
 # Case A: L1 HIT + IMS matches → 304
 test_ims_not_modified() {

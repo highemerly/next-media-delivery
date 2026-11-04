@@ -10,7 +10,7 @@
 # so avatar.avif and avatar.webp are stored separately.
 source "$(dirname "$0")/lib.sh"
 
-BASE_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets"
+BASE_URL="${ORIGIN_BASE}"
 
 # ---- avatar + .avif → image/avif ----
 test_avatar_avif() {
