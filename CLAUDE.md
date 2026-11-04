@@ -4,6 +4,7 @@
 - 応答は日本語で行うこと
 - 仕様・動作変更を伴うコード修正は README.md の該当箇所も同時に更新する
 - ビルド確認は `go build ./...`
+- main へは直接コミットしない。作業を始めるときにブランチを切り、PR（squash マージ）で取り込む（docs/development.md「ブランチと PR」）
 
 ## テスト
 - インテグレーションテストは `scripts/test/NN-<name>.sh` に追加する。`lib.sh` の共通関数（`get_response`・`assert_eq` 等）を使い、Nmd-Cache・Cache-Control・Server-Timing の期待値は README.md の仕様表に従って厳密に指定すること。
