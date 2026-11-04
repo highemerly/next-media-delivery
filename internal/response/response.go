@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -146,10 +147,16 @@ func WriteError(w http.ResponseWriter, statusCode int, cacheControl, xcache, cac
 	})
 }
 
+// serverTiming reports durations in milliseconds with microsecond precision
+// (e.g. "0.423", "143"). A fetch from a nearby origin can finish in under 1ms,
+// and truncating to whole milliseconds would show 0, which means "not fetched"
+// (L1 hit).
 func serverTiming(fetch, convert time.Duration) string {
-	fetchMS := fetch.Milliseconds()
-	convertMS := convert.Milliseconds()
-	return fmt.Sprintf("nmdFetch;dur=%d, nmdConvert;dur=%d", fetchMS, convertMS)
+	return "nmdFetch;dur=" + durationMS(fetch) + ", nmdConvert;dur=" + durationMS(convert)
+}
+
+func durationMS(d time.Duration) string {
+	return strconv.FormatFloat(float64(d.Microseconds())/1000, 'f', -1, 64)
 }
 
 // nmdCacheKey builds the Nmd-Cache-Key header value.
