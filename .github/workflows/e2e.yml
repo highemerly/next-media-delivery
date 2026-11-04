@@ -1,0 +1,63 @@
+name: E2E
+
+# インテグレーションテスト（scripts/test/run-all.sh）の再利用可能ワークフロー。
+# ci.yml（ブランチ push・差分で必要なときだけ。イメージはここでビルドし、push しない）と
+# docker-build.yml（タグ push・push 済みのイメージで）から呼ぶ。
+# 本番と同じイメージを docker-compose.yml で httpbin・octet-origin と一緒に起動して回す。
+# 手元でも同じ手順で動く（cp .env.ci .env && docker compose up -d --wait --build）。
+on:
+  workflow_call:
+    inputs:
+      # 指定するとビルドせず、このイメージ（push 済み・public）で回す。タグ時に、デプロイするイメージ
+      # そのものを確かめるため（作り直したイメージで通っても、本番に出すものの確認にならない）。
+      image:
+        type: string
+        default: ''
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # docker-compose.yml の media-delivery が使うイメージ
+      E2E_IMAGE: ${{ inputs.image || 'next-media-delivery:e2e' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        if: ${{ !inputs.image }}
+        uses: docker/setup-buildx-action@v4
+
+      # タグ時のビルド（docker-build.yml）が積む buildcache を読む。go.mod / go.sum が同じなら
+      # libvips の apt と go mod download は飛ばされる。
+      - name: Build production image (no push)
+        if: ${{ !inputs.image }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: next-media-delivery:e2e
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
+
+      - name: Pull pushed image
+        if: ${{ inputs.image }}
+        run: docker pull "$E2E_IMAGE"
+
+      # --no-build: ビルド済み（または pull 済み）の E2E_IMAGE をそのまま使う
+      - name: Start media-delivery
+        run: |
+          cp .env.ci .env
+          docker compose up -d --wait --no-build
+
+      - name: Run integration tests
+        run: bash scripts/test/run-all.sh
+        env:
+          CDN_NAME: ci-delivery.piyo.me  # .env.ci の CDN_NAME と一致させること
+          DEBUG_KEY: abc123              # .env.ci の DEBUG_KEY と一致させること
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs

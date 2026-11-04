@@ -8,6 +8,10 @@
 ## テスト
 - インテグレーションテストは `scripts/test/NN-<name>.sh` に追加する。`lib.sh` の共通関数（`get_response`・`assert_eq` 等）を使い、Nmd-Cache・Cache-Control・Server-Timing の期待値は README.md の仕様表に従って厳密に指定すること。
 
+## CI・リリース
+- CI の構成・差分での間引き・リリースの流れは docs/development.md を参照すること。ジョブの定義は `.github/workflows/checks.yml`・`e2e.yml` の1か所に置き、`ci.yml`（ブランチ）と `docker-build.yml`（タグ）の両方から呼ぶ。
+- 新しい種類のファイルを足したら `.github/scripts/ci-targets.sh` の判定も見直す。
+
 ## 設計・仕様
 アーキテクチャ、エンドポイント仕様、X-Cache 値一覧、環境変数一覧などの詳細は README.md を参照すること。
 
