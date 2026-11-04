@@ -1,155 +1,215 @@
-name: CI / CD
+name: Release
 
+# リリース。v* タグの push で、検査（checks・e2e）を全部回し、本番イメージを ghcr へ push し、
+# 全部通ったら GitHub Release を作って k8sg1-repo へイメージの版を上げる PR を出す
+# （流れは docs/development.md「リリース」）。
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - 'v*'
+  # 作り直し用。入力はそのままイメージタグと k8s マニフェストの版になる（`v` は外れない）ので、
+  # タグ push 時と揃えて `v` を付けずに入れる。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag without "v" (e.g., 0.2.0)'
+        required: true
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   K8S_REPO: highemerly/k8sg1-repo
-  K8S_MANIFEST_PATH: manifests/nmd/prd/web.yaml
+  # 同じイメージを使う prd のマニフェスト（スペース区切り）
+  K8S_MANIFEST_PATHS: "manifests/nmd/prd/web.yaml"
 
 jobs:
-  # ------------------------------------------------------------------ #
-  # Job 1: Build & Integration tests (全ブランチ・全PR)
-  # [WIP] コミットメッセージまたはPRタイトルが [WIP] で始まる場合はスキップ
-  # ------------------------------------------------------------------ #
-  test:
-    name: Build & Integration Tests
-    if: |
-      !startsWith(github.event.head_commit.message, '[WIP]') &&
-      !startsWith(github.event.pull_request.title, '[WIP]')
-    runs-on: ubuntu-latest
+  # go vet / go test。build と並走する。定義は checks.yml に集約（ブランチの CI と同じもの）。
+  checks:
+    uses: ./.github/workflows/checks.yml
 
-    steps:
-      - uses: actions/checkout@v4
+  # インテグレーションテスト。push したばかりの本番イメージそのもの（＝デプロイするもの）で回す。
+  # ブランチの CI は差分で e2e を省くことがあるので、リリースではここで必ず通してから先へ進む。
+  e2e:
+    needs: build
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ${{ needs.build.outputs.image }}
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install libvips
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev
-
-      - name: Unit tests
-        run: go test ./...
-
-      - name: Start media-delivery
-        run: |
-          cp .env.ci .env
-          docker compose up -d --wait --build
-
-      - name: Run integration tests
-        run: bash scripts/test/run-all.sh
-        env:
-          CDN_NAME: ci-delivery.piyo.me  # .env.ci の CDN_NAME と一致させること
-          DEBUG_KEY: abc123              # .env.ci の DEBUG_KEY と一致させること
-
-      - name: Show logs on failure
-        if: failure()
-        run: |
-          docker compose logs
-          echo "--- media-delivery env (DEBUG_KEY) ---"
-          docker compose exec -T media-delivery env | grep -i debug || true
-
-  # ------------------------------------------------------------------ #
-  # Job 2: Build & push Docker image to GHCR
-  # tag push のみ実行
-  # ------------------------------------------------------------------ #
-  build-and-push:
-    name: Build & Push Docker Image
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+  # イメージは検査の結果を待たずに push される（latest も動く）。本番は版を固定し、latest は使わない。
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     outputs:
-      version: ${{ steps.meta.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
+      # e2e が pull するイメージ・k8s マニフェストに書くイメージ
+      image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+      # release がノートの起点に使う。前回のタグが無ければ空
+      prev_tag: ${{ steps.prev.outputs.prev_tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      # 前回のタグを取るため履歴ごと取る
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Log in to Container Registry
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 入力は `${{ }}` で run: に直接埋めない（シェルの文字列として解釈され、
+      # 値に `"` や `$(...)` があればそのまま実行される）。環境変数で渡す
+      - name: Extract version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "version=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find previous tag
+        id: prev
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: ${PREV_TAG:-(none)}"
+
       - name: Extract metadata (tags, labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      # キャッシュはレジストリに置く。GitHub Actions のキャッシュ（type=gha）はタグの実行で積んだものを
+      # ブランチから読めないため。ブランチの e2e（e2e.yml）も同じ buildcache を cache-from で読む。
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
-          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ steps.meta.outputs.version }}
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          # 本番ノードに合わせる
+          platforms: linux/amd64
 
-  # ------------------------------------------------------------------ #
-  # Job 3: Create PR to k8s manifest repository
-  # ------------------------------------------------------------------ #
-  create-k8s-pr:
-    name: Create k8s Manifest PR
-    needs: build-and-push
+  # GitHub Release をタグごと（パッチも含む）に作る。全検査が通ったときだけ＝Release がある版はデプロイしてよい版。
+  # ノートは GitHub の自動生成（前回のタグからマージされた PR の一覧・英語。分類は .github/release.yml）。
+  # 同じノートを create-k8s-pr が k8sg1 の PR 本文に使う（変更の一覧の出どころを1つにする）。
+  release:
+    needs: [build, checks, e2e]
     runs-on: ubuntu-latest
+    permissions:
+      # generate-notes API も Release の作成も contents: write が要る
+      contents: write
+    outputs:
+      notes: ${{ steps.notes.outputs.notes }}
 
     steps:
-      - name: Checkout k8s manifest repository
-        uses: actions/checkout@v4
+      # 前回のタグは明示する。省くと GitHub は前回の「Release」を起点にするが、v0.1.8 以前は Release を作っていない。
+      # workflow_dispatch（作り直し）でタグが無いときは target_commitish の時点で生成される。
+      - name: Generate release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PREV_TAG: ${{ needs.build.outputs.prev_tag }}
+        run: |
+          args=(-f tag_name="v$VERSION" -f target_commitish="$GITHUB_SHA")
+          if [ -n "$PREV_TAG" ]; then args+=(-f previous_tag_name="$PREV_TAG"); fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/notes.md"
+          {
+            echo "notes<<NOTES_EOF"
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # 作り直し（workflow_dispatch）では Release は作らない（タグが無い・既にある）
+      - name: Create release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+
+  create-k8s-pr:
+    # ビルド・checks・e2e が全て成功したときだけ k8s マニフェストへ PR する（release が同じ条件で
+    # 待っているので、それを待てば足りる）。k8sg1 は Flux 同期なので、この PR のマージが
+    # そのまま本番へのデプロイになる。
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # 他のリポジトリへ push するので GITHUB_TOKEN は使えない。PAT で作った PR なので k8sg1 の CI も走る
+      - name: Checkout k8s repo
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.K8S_REPO }}
-          token: ${{ secrets.K8S_REPO_TOKEN }}
+          token: ${{ secrets.K8SG1_PAT }}
           path: k8s-repo
 
-      - name: Update image tag in manifest
-        id: update
+      # マニフェストの書式が変わって sed が何も書き換えないと、差分が無いので create-pull-request は
+      # PR を作らずに黙って成功する（＝デプロイされないのに緑）。書き換わったことを確かめて落とす
+      - name: Update image tag
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        working-directory: k8s-repo
         run: |
-          VERSION="${{ needs.build-and-push.outputs.version }}"
-          NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
-          MANIFEST="k8s-repo/${{ env.K8S_MANIFEST_PATH }}"
+          repo="${IMAGE%:*}"
+          for p in $K8S_MANIFEST_PATHS; do
+            sed -i "s|image: ${repo}:.*|image: ${IMAGE}|" "$p"
+            grep -q "image: ${IMAGE}$" "$p" || { echo "::error file=$p::image line not updated"; exit 1; }
+          done
 
-          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${NEW_IMAGE}|g" "${MANIFEST}"
-
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "new_image=${NEW_IMAGE}" >> "$GITHUB_OUTPUT"
+      # 本文は英語・全アプリ共通の書式（イメージ・ビルドのリンク・release ジョブが生成したノート）。
+      # ノートの PR は完全な URL で書かれるので、k8sg1 の #N へのリンクに化けない。
+      # DB を持たないので、マイグレーションの節と requires-migration ラベルは無い。
+      - name: Write PR body
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          NOTES: ${{ needs.release.outputs.notes }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "- Image: \`$IMAGE\`"
+            echo "- Build: $RUN_URL"
+            echo
+            printf '%s\n' "$NOTES"
+          } > "$RUNNER_TEMP/pr-body.md"
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.K8S_REPO_TOKEN }}
           path: k8s-repo
-          commit-message: "chore: update media-delivery to ${{ steps.update.outputs.version }}"
-          branch: "update/media-delivery-${{ steps.update.outputs.version }}"
+          token: ${{ secrets.K8SG1_PAT }}
+          branch: update-next-media-delivery-${{ needs.build.outputs.version }}
           delete-branch: true
-          title: "chore: update media-delivery to ${{ steps.update.outputs.version }}"
-          body: |
-            ## media-delivery image update
-
-            | | |
-            |---|---|
-            | **New image** | `${{ steps.update.outputs.new_image }}` |
-            | **Source commit** | ${{ github.repository }}@${{ github.sha }} |
-            | **Triggered by** | ${{ github.actor }} |
-
-            ### Changes
-            ${{ github.event.head_commit.message }}
-
-            ---
-            *Auto-generated by [GitHub Actions](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
-          labels: media-delivery
+          commit-message: Update next-media-delivery to ${{ needs.build.outputs.version }}
+          title: Update next-media-delivery to ${{ needs.build.outputs.version }}
+          body-path: ${{ runner.temp }}/pr-body.md
+          # app-update: k8sg1 に大量に来る PR のうちアプリの版上げを見分ける（全アプリ共通）。
+          # アプリ名はタイトルにあるのでアプリ別のラベルは付けない
+          labels: app-update
