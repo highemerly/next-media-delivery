@@ -1,6 +1,6 @@
 module github.com/highemerly/media-delivery
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
