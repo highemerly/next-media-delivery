@@ -79,10 +79,12 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           fi
 
+      # HEAD^ から辿れるタグのうち版が最大のもの。git describe は同じコミットに複数のタグがあると
+      # 版の大小で選ばない（v0.1.7 と v0.1.8 が同じコミットで、v0.1.9 の前回が v0.1.7 になった）。
       - name: Find previous tag
         id: prev
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          PREV_TAG=$(git tag --merged HEAD^ --sort=-v:refname --list 'v*' | head -1)
           echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
           echo "Previous tag: ${PREV_TAG:-(none)}"
 
