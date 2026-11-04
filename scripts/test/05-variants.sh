@@ -15,7 +15,7 @@
 # Format conversion (JPEG/WebP/AVIF → WebP) tested for emoji variant.
 source "$(dirname "$0")/lib.sh"
 
-BASE_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets"
+BASE_URL="${ORIGIN_BASE}"
 
 # helper: fetch image body, run assertions, clean up
 # Usage: test_variant <variant_flag> <filename_suffix> <origin_url> <expected_content_type_pattern> \

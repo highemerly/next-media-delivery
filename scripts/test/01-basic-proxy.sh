@@ -5,7 +5,7 @@
 #   HTTP status    : 200
 #   Nmd-Cache      : L1=MISS, ORI=200
 #   Cache-Control  : max-age=31536000, immutable
-#   Server-Timing  : nmdFetch;dur>=1, nmdConvert;dur>=0
+#   Server-Timing  : nmdFetch;dur > 0, nmdConvert;dur>=0
 #   Nmd-Cache-Key  : <sha256>, v=avatar, c=y
 #   Nmd-Info       : NextMediaDelivery/<ver>, <instance>
 #   Nmd-Original   : s=<size>, f=image/<format>
@@ -15,7 +15,7 @@
 #   Access-Control-Allow-Origin : *
 source "$(dirname "$0")/lib.sh"
 
-ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/test-image.png"
+ORIGIN_URL="${ORIGIN_BASE}/test-image.png"
 
 test_basic_proxy() {
   local encoded url
@@ -41,7 +41,7 @@ test_basic_proxy() {
   assert_match       "^image/"                     "$ct"          "Content-Type"                || ok=1
   assert_eq          "L1=MISS, ORI=200"            "$nc"          "Nmd-Cache"                   || ok=1
   assert_eq          "max-age=31536000, immutable" "$cc"          "Cache-Control"               || ok=1
-  assert_server_timing_fetch_ge1                   "$st"          "Server-Timing fetch"         || ok=1
+  assert_server_timing_fetch_positive                "$st"          "Server-Timing fetch"         || ok=1
   assert_match       "^[0-9a-f]{64}, v=avatar, c=y$" "$ck"       "Nmd-Cache-Key"               || ok=1
   assert_eq          "*"                           "$acao"        "Access-Control-Allow-Origin" || ok=1
   assert_match       "^[1-9][0-9]*$"               "$cl"          "Content-Length >= 1"         || ok=1

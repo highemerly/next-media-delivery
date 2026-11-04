@@ -5,7 +5,7 @@
 #   HTTP status    : 404
 #   Nmd-Cache      : L1=MISS, ORI=ERR  (origin returned 4xx)
 #   Cache-Control  : max-age=3600
-#   Server-Timing  : nmdFetch;dur >= 1  (origin contacted)
+#   Server-Timing  : nmdFetch;dur > 0  (origin contacted)
 #
 # 04b — 2nd request (negative cache hit):
 #   HTTP status    : 404
@@ -15,7 +15,7 @@
 source "$(dirname "$0")/lib.sh"
 
 # Unique URL — must not collide with test 03b's negative cache entry
-ORIGIN_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets/04-does-not-exist.png"
+ORIGIN_URL="${ORIGIN_BASE}/04-does-not-exist.png"
 
 test_negative_cache_first_request() {
   local encoded url
@@ -34,7 +34,7 @@ test_negative_cache_first_request() {
   assert_http_status "404"              "$RESP_STATUS" "HTTP status (origin 404)"    || ok=1
   assert_eq          "L1=MISS, ORI=ERR" "$nc"        "Nmd-Cache"                   || ok=1
   assert_eq          "max-age=3600"  "$cc"            "Cache-Control"               || ok=1
-  assert_server_timing_fetch_ge1     "$st"            "Server-Timing fetch"         || ok=1
+  assert_server_timing_fetch_positive  "$st"            "Server-Timing fetch"         || ok=1
 
   return $ok
 }

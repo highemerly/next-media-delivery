@@ -5,6 +5,11 @@
 set -euo pipefail
 
 PROXY_BASE="${PROXY_BASE:-http://localhost:3000}"
+# Origin serving ./assets with normal Content-Types (the `origin` service in
+# docker-compose.yml). Tests never fetch from the internet: an external origin
+# can rate-limit CI (raw.githubusercontent.com returned 429) and only sees
+# assets already merged to main.
+ORIGIN_BASE="${ORIGIN_BASE:-http://origin}"
 PASS=0
 FAIL=0
 
@@ -104,28 +109,35 @@ assert_match() {
   fi
 }
 
-# assert_server_timing_fetch_ge1 <server_timing_value> <label>
-# Checks nmdFetch;dur >= 1 (origin was actually contacted)
-assert_server_timing_fetch_ge1() {
+# server_timing_fetch_dur <server_timing_value>
+# Prints the nmdFetch duration (milliseconds, may be fractional: "0.423").
+server_timing_fetch_dur() {
+  echo "$1" | sed -nE 's/.*nmdFetch;dur=([0-9]+(\.[0-9]+)?).*/\1/p'
+}
+
+# assert_server_timing_fetch_positive <server_timing_value> <label>
+# Checks nmdFetch;dur > 0 (origin was actually contacted; sub-millisecond
+# fetches are reported as fractions, so only "not fetched" is exactly 0)
+assert_server_timing_fetch_positive() {
   local st="$1" label="$2"
   local fetch_dur
-  fetch_dur=$(echo "$st" | sed -E 's/.*nmdFetch;dur=([0-9]+).*/\1/')
-  if [ -n "$fetch_dur" ] && [ "$fetch_dur" -ge 1 ]; then
-    echo "  [OK] ${label}: nmdFetch;dur=${fetch_dur} (>= 1)"
+  fetch_dur=$(server_timing_fetch_dur "$st")
+  if [ -n "$fetch_dur" ] && awk -v d="$fetch_dur" 'BEGIN { exit !(d > 0) }'; then
+    echo "  [OK] ${label}: nmdFetch;dur=${fetch_dur} (> 0)"
     return 0
   else
-    echo "  [FAIL] ${label}: expected nmdFetch;dur >= 1, got '${st}'"
+    echo "  [FAIL] ${label}: expected nmdFetch;dur > 0, got '${st}'"
     return 1
   fi
 }
 
 # assert_server_timing_fetch_zero <server_timing_value> <label>
-# Checks nmdFetch;dur = 0 (cache hit, no origin contact)
+# Checks nmdFetch;dur = 0 exactly (cache hit, no origin contact)
 assert_server_timing_fetch_zero() {
   local st="$1" label="$2"
   local fetch_dur
-  fetch_dur=$(echo "$st" | sed -E 's/.*nmdFetch;dur=([0-9]+).*/\1/')
-  if [ -n "$fetch_dur" ] && [ "$fetch_dur" -eq 0 ]; then
+  fetch_dur=$(server_timing_fetch_dur "$st")
+  if [ "$fetch_dur" = "0" ]; then
     echo "  [OK] ${label}: nmdFetch;dur=0 (cache hit)"
     return 0
   else

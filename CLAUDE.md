@@ -7,7 +7,7 @@
 - main へは直接コミットしない。作業を始めるときにブランチを切り、PR（squash マージ）で取り込む（docs/development.md「ブランチと PR」）
 
 ## テスト
-- インテグレーションテストは `scripts/test/NN-<name>.sh` に追加する。`lib.sh` の共通関数（`get_response`・`assert_eq` 等）を使い、Nmd-Cache・Cache-Control・Server-Timing の期待値は README.md の仕様表に従って厳密に指定すること。
+- インテグレーションテストは `scripts/test/NN-<name>.sh` に追加する。`lib.sh` の共通関数（`get_response`・`assert_eq` 等）を使い、Nmd-Cache・Cache-Control・Server-Timing の期待値は README.md の仕様表に従って厳密に指定すること。画像の取得元は `ORIGIN_BASE`（compose 内の nginx が `assets/` を配る）を使い、インターネット上の URL は使わない。
 
 ## CI・リリース
 - CI の構成・差分での間引き・リリースの流れは docs/development.md を参照すること。ジョブの定義は `.github/workflows/checks.yml`・`e2e.yml` の1か所に置き、`ci.yml`（ブランチ）と `docker-build.yml`（タグ）の両方から呼ぶ。

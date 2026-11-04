@@ -11,7 +11,7 @@
 #   test-large.*    (640x480):   すでに上限以下 → 拡大せず 640x480
 source "$(dirname "$0")/lib.sh"
 
-BASE_URL="https://raw.githubusercontent.com/highemerly/next-media-delivery/main/assets"
+BASE_URL="${ORIGIN_BASE}"
 
 # ---- 大きい画像 → WebP 1200x800（幅上限、アスペクト比維持） ----
 test_ogp_downscale() {
