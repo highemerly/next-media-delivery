@@ -1,5 +1,44 @@
 # 開発の進め方
 
+## ブランチと PR
+
+- **main へは直接コミット・push しない**。変更は必ずブランチを切り、PR → CI 緑 → squash マージで取り込む（依存更新を Renovate の PR で回すため、人の変更も同じ経路に揃える）。
+- PR のタイトルは英語で、中身が分かるように付ける。squash のコミットメッセージと GitHub Release のノートにそのまま使われる。
+- 手元：[.githooks/pre-commit](../.githooks/pre-commit) が main 上のコミットを拒否する。clone ごとに1回有効化する：
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+- サーバー側：GitHub の ruleset（定義は [.github/rulesets/main.json](../.github/rulesets/main.json)）が main への push を拒否する。タグは ruleset の対象外なので、リリースのタグは手元から push できる。
+
+### ruleset の中身と理由
+
+| ルール | 設定 | 理由 |
+|---|---|---|
+| PR 必須 | 承認数 0 | 一人運用で、自分の PR は自分で承認できないため |
+| アカウントに紐づかない作者のコミット | 追加の承認を求めない（`require_extra_approval_for_unattributed_changes: false`） | 省略すると true が入り、そうしたコミットを含む PR を自分では承認できず、マージできなくなるため |
+| マージ方式 | squash のみ＋linear history | 「1 PR＝1 コミット」の履歴にする。Release のノートは PR 単位なので、履歴と揃う |
+| 必須チェック | `ci-result` だけ | ジョブは差分で間引く（下の「CI」）ので、個別に必須にするとスキップされたジョブに結果が付かずマージできなくなる |
+| 最新化の強制 | しない（strict=false） | Renovate の PR が複数並んだとき、1件マージするたびに全件を rebase・再 CI させないため |
+| force push・削除 | 禁止 | |
+| バイパス | なし（管理者も対象） | |
+
+必須でないチェックは、auto-merge も ruleset も待たない。マージ前に見たい検査は全部 `ci-result` にまとめる。
+
+ruleset を変えたら JSON を直して反映する（作成時は POST、以降は `gh api repos/highemerly/next-media-delivery/rulesets` で id を引いて PUT）：
+```bash
+gh api -X POST repos/highemerly/next-media-delivery/rulesets --input .github/rulesets/main.json
+gh api -X PUT repos/highemerly/next-media-delivery/rulesets/<id> --input .github/rulesets/main.json
+```
+
+### リポジトリの設定
+
+| 設定 | 値 | 理由 |
+|---|---|---|
+| マージ方式 | squash だけ有効 | ruleset と揃える（ほかの方式のボタンを出さない） |
+| squash のコミット | タイトル＝PR タイトル、本文は空 | ブランチ上の途中のコミットメッセージを main に持ち込まない |
+| マージ後のブランチ | 自動で削除 | |
+| auto-merge | 有効 | Renovate の PR などを、CI が緑になったら取り込めるように |
+
 ## CI
 
 ### ワークフロー
