@@ -1,0 +1,33 @@
+name: Checks
+
+# go vet / go test を回す再利用可能ワークフロー。
+# ci.yml（ブランチ push・差分で必要なときだけ）と docker-build.yml（タグ push でビルドと並走）の両方から呼ぶ。
+# CI ステップの単一の定義元。
+on:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # bimg が cgo で libvips を使うため、ビルドにもテストにも要る
+      - name: Install libvips
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev
+
+      - name: Vet
+        run: go vet ./...
+
+      # vet が落ちてもテストまで走らせ、1 回の実行で全問題を出す。
+      - name: Test
+        if: ${{ !cancelled() }}
+        run: go test ./...

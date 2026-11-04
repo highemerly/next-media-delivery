@@ -24,6 +24,9 @@ services:
 
   media-delivery:
     build: .
+    # CI（.github/workflows/e2e.yml）はビルド済み・push 済みのイメージを E2E_IMAGE で渡し、--no-build で起動する。
+    # 手元の `docker compose up --build` はこの名前でビルドする。
+    image: ${E2E_IMAGE:-next-media-delivery:e2e}
     env_file:
       - .env
     ports:

@@ -2,10 +2,7 @@ name: CI / CD
 
 on:
   push:
-    branches: ["**"]
     tags: ["v*"]
-  pull_request:
-    branches: ["**"]
 
 env:
   REGISTRY: ghcr.io
