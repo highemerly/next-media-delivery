@@ -1,6 +1,6 @@
 services:
   httpbin:
-    image: kennethreitz/httpbin
+    image: kennethreitz/httpbin@sha256:599fe5e5073102dbb0ee3dbb65f049dab44fa9fc251f6835c9990f8fb196a72b
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',80),2); s.close()"]
       interval: 2s
@@ -12,7 +12,7 @@ services:
   # The origin for the integration tests (ORIGIN_BASE in scripts/test/lib.sh),
   # so they never fetch from the internet.
   origin:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
     volumes:
       - ./assets:/usr/share/nginx/html:ro
     healthcheck:
@@ -25,7 +25,7 @@ services:
   # Serves ./assets as binary/octet-stream, reproducing object storage origins
   # (B2/S3) that mislabel media. Used by test 07 for Content-Type sniffing.
   octet-origin:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
     volumes:
       - ./assets:/usr/share/nginx/html:ro
       - ./scripts/test/origin-nginx.conf:/etc/nginx/conf.d/default.conf:ro
