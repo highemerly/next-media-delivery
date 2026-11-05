@@ -4,7 +4,11 @@
 - 応答は日本語で行うこと
 - 仕様・動作変更を伴うコード修正は README.md の該当箇所も同時に更新する
 - ビルド確認は `go build ./...`
-- main へは直接コミットしない。作業を始めるときにブランチを切り、PR（squash マージ）で取り込む（docs/development.md「ブランチと PR」）
+- main へは直接コミットしない。作業を始めるときにブランチを切り、PR（squash マージ）で取り込む（docs/development.md「ブランチと PR」）。PR は自分に assign する（`gh pr create --assignee @me`）
+
+## 公開リポジトリ
+- インフラの非公開の情報（マニフェストのリポジトリ名・パス、クラスタの内部の名前や IP）をコード・docs・コミットメッセージ・PR に書かない。ワークフローで要るものはシークレットに置く（Actions のログも公開される）。
+- コミットの作者のメールは GitHub の noreply（`3039555+highemerly@users.noreply.github.com`）にする（設定は docs/development.md「ブランチと PR」）。
 
 ## テスト
 - インテグレーションテストは `scripts/test/NN-<name>.sh` に追加する。`lib.sh` の共通関数（`get_response`・`assert_eq` 等）を使い、Nmd-Cache・Cache-Control・Server-Timing の期待値は README.md の仕様表に従って厳密に指定すること。画像の取得元は `ORIGIN_BASE`（compose 内の nginx が `assets/` を配る）を使い、インターネット上の URL は使わない。
