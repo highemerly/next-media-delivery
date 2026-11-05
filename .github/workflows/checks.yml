@@ -9,6 +9,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 既定は 360 分。固まったときに6時間待たないよう、ふだん（約1分）の数倍で切る
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -22,6 +24,8 @@ jobs:
 
       # bimg が cgo で libvips を使うため、ビルドにもテストにも要る
       - name: Install libvips
+        # apt のミラーが遅いと終わらないことがあるので、ステップにも短めに付ける
+        timeout-minutes: 5
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev
 
       - name: Vet
