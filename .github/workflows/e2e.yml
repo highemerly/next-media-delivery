@@ -17,6 +17,8 @@ on:
 jobs:
   integration:
     runs-on: ubuntu-latest
+    # 既定は 360 分。固まったときに6時間待たないよう、ふだん（約2分）の数倍で切る
+    timeout-minutes: 15
     permissions:
       contents: read
     env:
