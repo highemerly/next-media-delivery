@@ -1,0 +1,77 @@
+name: Tag a release
+
+# リリースを Actions の画面から出す（手元でタグを打って push しても同じことが起きる）。
+# main の先頭に次の版のタグを打ち、docker-build.yml を呼ぶ。版の上げ方は実行するときに選ぶ
+# （表は docs/development.md「リリース」）。
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'patch = fixes and dependency updates only, minor = new features, major = breaking changes'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+# 2つ同時に走ると同じ版を打とうとするので、1つずつ
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # 前回のタグは、HEAD から辿れるタグのうち版が最大のもの。git describe は同じコミットに複数のタグがあると
+      # 版の大小で選ばない（v0.1.7 と v0.1.8 が同じコミットにある）。
+      # GITHUB_TOKEN で push したタグでは docker-build.yml の on: push が起動しない（二重に走らない）ので、
+      # 下の release ジョブで直接呼ぶ
+      - name: Create and push the tag
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Run this from main, not $GITHUB_REF"
+            exit 1
+          fi
+          prev="$(git tag --merged HEAD --sort=-v:refname --list 'v[0-9]*.[0-9]*.[0-9]*' | head -1)"
+          if [ -z "$prev" ]; then
+            echo "::error::No previous vX.Y.Z tag found"
+            exit 1
+          fi
+          if [ -z "$(git rev-list "$prev..HEAD")" ]; then
+            echo "::error::Nothing to release: no commits since $prev"
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "${prev#v}"
+          case "$BUMP" in
+            major) version="$((major + 1)).0.0" ;;
+            minor) version="$major.$((minor + 1)).0" ;;
+            patch) version="$major.$minor.$((patch + 1))" ;;
+          esac
+          git tag "v$version"
+          git push origin "v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Tagged \`v$version\` on $GITHUB_SHA (previous: \`$prev\`, bump: $BUMP)" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: tag
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
+    # 呼ばれる側のジョブが使う権限の和（GitHub Release の作成・イメージの push）。足りないと呼ばれる側が起動時に落ちる。
+    # secrets: デプロイの PR に使うシークレット（K8SG1_*）
+    permissions:
+      contents: write
+      packages: write
+    secrets: inherit

@@ -1,18 +1,22 @@
 name: Release
 
-# リリース。v* タグの push で、検査（checks・e2e）を全部回し、本番イメージを ghcr へ push し、
+# リリース。v* タグで、検査（checks・e2e）を全部回し、本番イメージを ghcr へ push し、
 # 全部通ったら GitHub Release を作って k8s のマニフェストのリポジトリへイメージの版を上げる PR を出す
 # （流れは docs/development.md「リリース」）。
 on:
   push:
     tags:
       - 'v*'
-  # 作り直し用。入力はそのままイメージタグと k8s マニフェストの版になる（`v` は外れない）ので、
-  # タグ push 時と揃えて `v` を付けずに入れる。
-  workflow_dispatch:
+  # tag-release.yml（Actions の画面から手で実行）がタグを打ってから呼ぶ。GITHUB_TOKEN で push したタグでは
+  # ワークフローが起動しないため、push を待たずに直接呼んでもらう。そのタグは github.sha に付いているので、
+  # checkout（既定で github.sha）・checks・e2e もそのタグと同じコミットを見る。
+  # 失敗した実行の作り直しは、Actions の画面の Re-run で行う（以前の workflow_dispatch はやめた。任意の
+  # ブランチ・任意の版でデプロイの PR まで出せてしまうため）。
+  workflow_call:
     inputs:
-      tag:
-        description: 'Image tag without "v" (e.g., 0.2.0)'
+      version:
+        description: 'Version without "v" (e.g., 1.2.3). The tag vX.Y.Z must already point at github.sha'
+        type: string
         required: true
 
 env:
@@ -35,6 +39,8 @@ jobs:
   # イメージは検査の結果を待たずに push される（latest も動く）。本番は版を固定し、latest は使わない。
   build:
     runs-on: ubuntu-latest
+    # 既定は 360 分。固まったときに6時間待たないよう、ふだん（約1分半）の数倍で切る
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -62,19 +68,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # tag-release.yml から呼ばれたときは github.ref が main なので、版は入力から取る。タグの push のときは ref から。
       # 入力は `${{ }}` で run: に直接埋めない（シェルの文字列として解釈され、
       # 値に `"` や `$(...)` があればそのまま実行される）。環境変数で渡す
       - name: Extract version
         id: version
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "version=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-          fi
+          INPUT_VERSION: ${{ inputs.version }}
+        run: echo "version=${INPUT_VERSION:-${GITHUB_REF#refs/tags/v}}" >> "$GITHUB_OUTPUT"
 
       # HEAD^ から辿れるタグのうち版が最大のもの。git describe は同じコミットに複数のタグがあると
       # 版の大小で選ばない（v0.1.7 と v0.1.8 が同じコミットで、v0.1.9 の前回が v0.1.7 になった）。
@@ -90,11 +91,13 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # 版は ref から取らず value で渡す（tag-release.yml から呼ばれたときは ref が main のため）。
+          # latest は下で明示するので、metadata-action の自動の latest は切る
+          flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}},value=v${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ steps.version.outputs.version }}
+            type=raw,value=latest
 
       # キャッシュはレジストリに置く。GitHub Actions のキャッシュ（type=gha）はタグの実行で積んだものを
       # ブランチから読めないため。ブランチの e2e（e2e.yml）も同じ buildcache を cache-from で読む。
@@ -117,6 +120,7 @@ jobs:
   release:
     needs: [build, checks, e2e]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       # generate-notes API も Release の作成も contents: write が要る
       contents: write
@@ -125,7 +129,6 @@ jobs:
 
     steps:
       # 前回のタグは明示する。省くと GitHub は前回の「Release」を起点にするが、v0.1.8 以前は Release を作っていない。
-      # workflow_dispatch（作り直し）でタグが無いときは target_commitish の時点で生成される。
       - name: Generate release notes
         id: notes
         env:
@@ -143,14 +146,14 @@ jobs:
             echo "NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      # 作り直し（workflow_dispatch）では Release は作らない（タグが無い・既にある）
+      # タグ名は v$VERSION から作る（tag-release.yml から呼ばれたときは GITHUB_REF_NAME が main のため）
       - name: Create release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
   create-k8s-pr:
     # ビルド・checks・e2e が全て成功したときだけ k8s マニフェストへ PR する（release が同じ条件で
@@ -158,6 +161,7 @@ jobs:
     # そのまま本番へのデプロイになる。
     needs: [build, release]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     env:

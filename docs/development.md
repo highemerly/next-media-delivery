@@ -101,7 +101,8 @@ gh api -X PUT repos/highemerly/next-media-delivery/rulesets/<id> --input .github
 | `.github/workflows/ci.yml` | main 以外のブランチへの push | 差分で回すジョブを決め、結果を `ci-result` にまとめる |
 | `.github/workflows/checks.yml` | 再利用（ci.yml・docker-build.yml から呼ぶ） | `go vet ./...`・`go test ./...` |
 | `.github/workflows/e2e.yml` | 再利用（ci.yml・docker-build.yml から呼ぶ） | 本番イメージを `docker-compose.yml` で起動し、`scripts/test/run-all.sh` を回す |
-| `.github/workflows/docker-build.yml` | `v*` タグの push・手動 | リリース（下の「リリース」） |
+| `.github/workflows/docker-build.yml` | `v*` タグの push・tag-release.yml から呼ばれる | リリース（下の「リリース」） |
+| `.github/workflows/tag-release.yml` | 手動（Actions の画面の Tag a release） | 次の版のタグを打って docker-build.yml を呼ぶ |
 
 ジョブの定義は `checks.yml`・`e2e.yml` の1か所だけにあり、ブランチの CI とタグのリリースの両方がそれを呼ぶ。
 
@@ -116,7 +117,7 @@ gh api -X PUT repos/highemerly/next-media-delivery/rulesets/<id> --input .github
 | `.github/workflows/checks.yml` | ○ | |
 | `.github/workflows/e2e.yml` | | ○ |
 | ドキュメント・`.claude/`・`.githooks/`・ruleset・Renovate 設定・`.github/release.yml` など | | |
-| `.github/workflows/docker-build.yml`（タグでしか動かないので確かめようがない） | | |
+| `.github/workflows/docker-build.yml`・`tag-release.yml`（リリースでしか動かないので確かめようがない） | | |
 
 - 一覧に無い種類のファイルは両方回す（知らない種類の変更を素通しさせない）。
 - `release/*` ブランチ（版の bump だけ）は何も回さない。タグの push で全部回る。
@@ -165,19 +166,39 @@ docker compose down
 
 ### 手順
 
+**版はタグだけに持つ**（Go のビルド時に `-ldflags "-X main.version=..."` で埋め込む。リポジトリ内に版の文字列は無いので、版を上げる PR は要らない）。
+
+Actions の画面の **Tag a release**（[tag-release.yml](../.github/workflows/tag-release.yml)）を main で実行し、上げ方を選ぶ。main の先頭に次の版のタグを打ち、そのまま docker-build.yml を呼ぶ。手元からは：
+
 ```bash
-git switch main && git pull
-git tag v0.2.0
-git push origin v0.2.0
+gh workflow run tag-release.yml --ref main -f bump=patch
+```
+
+| 上げ方 | いつ |
+|---|---|
+| patch | 修正と依存の更新だけ |
+| minor | 新しい機能（利用者・運用者から見てできることが増えた） |
+| major | 互換性を崩す |
+
+ラベルでは決めない（付ける人がいない）。実行するときに選ぶ。
+
+手元でタグを打って push しても同じことが起きる（飛び番の版を出すとき）：
+
+```bash
+git switch main && git pull && git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
 タグは `vX.Y.Z`。イメージのタグ・マニフェストの版は `v` を外した `X.Y.Z` になる。
 
+- 前回のタグは「main から辿れるタグのうち版が最大のもの」（`git tag --merged --sort=-v:refname`）。`git describe` は同じコミットに複数のタグがあると版の大小で選ばない（v0.1.7 と v0.1.8 が同じコミットにある）。
+- 前回のタグから main にコミットが無ければ「Nothing to release」で止まる。
+- Tag a release が打ったタグは GITHUB_TOKEN で push されるので、docker-build.yml の `on: push` は起動しない。そのかわり tag-release.yml が docker-build.yml を `workflow_call` で直接呼ぶ（二重には走らない）。
+
 ### タグで何が起きるか（`.github/workflows/docker-build.yml`）
 
 ```
-tag push ─┬─ checks（go vet / go test）─────────────────────┐
-          └─ build（イメージを ghcr へ push）─ e2e（そのイメージで）─┴─ release ─ create-k8s-pr
+tag ─┬─ checks（go vet / go test）─────────────────────┐
+     └─ build（イメージを ghcr へ push）─ e2e（そのイメージで）─┴─ release ─ create-k8s-pr
 ```
 
 1. **build**：本番イメージを `ghcr.io/highemerly/next-media-delivery` へ push する。タグは `X.Y.Z`・`X.Y`・`latest`。checks と並走し、検査の結果は待たない。
@@ -188,7 +209,7 @@ tag push ─┬─ checks（go vet / go test）───────────
 **その PR のマージがそのまま本番へのデプロイになる**（Flux が約1分で反映）。マージはこちらで行う。マニフェストのリポジトリには必須チェックが無いので、そちらの CI が緑かを目で見てからマージする。
 
 - `latest` は検査の前に動くので、デプロイには使わない。本番は版を固定する。
-- 途中で落ちたら Release もデプロイの PR もできない。直して次のパッチのタグを打つ。
+- 途中で落ちたら Release もデプロイの PR もできない。一時的な失敗（レジストリ・apt のミラーなど）なら、Actions の画面でその実行を Re-run する（失敗したジョブだけでもよい）。コードを直したときは次のパッチを出す。
 - PR が出ないときは、Actions の `create-k8s-pr` のログを見る。マニフェストの `image:` の行が書き換わらなかったときは `image line not updated` で落ちる。
 - デプロイの PR は `app-update` ラベル・タイトル `Update next-media-delivery to X.Y.Z`・ブランチ `update-next-media-delivery-X.Y.Z`（全アプリ共通の書式）。本文はイメージ・ビルドのリンクと、GitHub Release と同じノート。
 - DB は持たないので、マイグレーションの手順は無い。
@@ -200,6 +221,6 @@ tag push ─┬─ checks（go vet / go test）───────────
 - 分類は `.github/release.yml`：Renovate の PR（`dependencies` ラベル）は Dependencies、それ以外は Changes。
 - 前回のタグ（`previous_tag_name`）は明示している。省くと GitHub は前回の「Release」を起点にするが、v0.1.8 以前は Release を作っていないため。
 
-### 作り直し（workflow_dispatch）
+### 作り直し
 
-Actions の「Release」を手動で実行し、`tag` に `v` を付けずに版（例 `0.2.0`）を入れる。イメージはその版で push し直し、検査を全部回してデプロイの PR を出す。Release は作らない（ノートの生成だけして PR 本文に使う）。ベースイメージの更新だけを取り込み直したいときなどに使う。
+失敗した実行は Actions の画面で Re-run する。以前は docker-build.yml を `workflow_dispatch` で任意の版で作り直せたが、任意のブランチ・任意の版でデプロイの PR まで出せてしまうのでやめた。ベースイメージの更新だけを取り込みたいときは、Renovate の digest 更新の PR をマージしてから patch を出す。
