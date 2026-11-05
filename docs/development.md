@@ -151,6 +151,16 @@ docker compose down
 
 ## リリース
 
+本番は、Flux で同期している k8s のマニフェストのリポジトリ（非公開）が指すイメージ。版は `vX.Y.Z` のタグで決める。
+
+マニフェストのリポジトリの名前とパスはこのリポジトリに書かない（公開リポジトリで、Actions のログも誰でも読めるため）。ワークフローはシークレットから読む（値はログで `***` に伏せられる）：
+
+| シークレット | 中身 |
+|---|---|
+| `K8SG1_REPO` | マニフェストのリポジトリ（`owner/name`） |
+| `K8SG1_MANIFEST_PATHS` | 書き換える prd のマニフェストのパス（スペース区切り） |
+| `K8SG1_PAT` | そのリポジトリへ PR を出すトークン（fine-grained PAT。対象はそのリポジトリだけ、Contents と Pull requests の Read and write） |
+
 ### 手順
 
 ```bash
@@ -159,7 +169,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-タグは `vX.Y.Z`。イメージのタグ・k8s マニフェストの版は `v` を外した `X.Y.Z` になる。
+タグは `vX.Y.Z`。イメージのタグ・マニフェストの版は `v` を外した `X.Y.Z` になる。
 
 ### タグで何が起きるか（`.github/workflows/docker-build.yml`）
 
@@ -171,15 +181,14 @@ tag push ─┬─ checks（go vet / go test）───────────
 1. **build**：本番イメージを `ghcr.io/highemerly/next-media-delivery` へ push する。タグは `X.Y.Z`・`X.Y`・`latest`。checks と並走し、検査の結果は待たない。
 2. **checks・e2e**：ブランチで差分により省いていたかもしれない検査を全部回す。e2e は push したイメージそのもの（＝デプロイするもの）を pull して回す。
 3. **release**：全部通ったら GitHub Release を作る（下）。
-4. **create-k8s-pr**：k8sg1-repo（`highemerly/k8sg1-repo`）の `manifests/nmd/prd/web.yaml` のイメージを `X.Y.Z` に上げる PR を出す。
+4. **create-k8s-pr**：マニフェストのリポジトリへ、イメージを `X.Y.Z` に上げる PR を出す。
 
-**k8sg1 は Flux で同期しているので、この PR のマージがそのまま本番へのデプロイになる**（約1分で反映）。マージはこちらで行う。k8sg1 の CI（yamllint・kubeconform）は必須チェックにできないので、緑であることを目で見てからマージする。
+**その PR のマージがそのまま本番へのデプロイになる**（Flux が約1分で反映）。マージはこちらで行う。マニフェストのリポジトリには必須チェックが無いので、そちらの CI が緑かを目で見てからマージする。
 
 - `latest` は検査の前に動くので、デプロイには使わない。本番は版を固定する。
-- 途中で落ちたら Release も k8sg1 の PR もできない。直して次のパッチのタグを打つ。
+- 途中で落ちたら Release もデプロイの PR もできない。直して次のパッチのタグを打つ。
 - PR が出ないときは、Actions の `create-k8s-pr` のログを見る。マニフェストの `image:` の行が書き換わらなかったときは `image line not updated` で落ちる。
-- k8sg1 の PR は `app-update` ラベル・タイトル `Update next-media-delivery to X.Y.Z`・ブランチ `update-next-media-delivery-X.Y.Z`（全アプリ共通の書式）。本文はイメージ・ビルドのリンクと、GitHub Release と同じノート。
-- k8sg1 への push にはシークレット `K8SG1_PAT`（fine-grained PAT。対象は `highemerly/k8sg1-repo` だけ、Contents と Pull requests の Read and write）を使う。
+- デプロイの PR は `app-update` ラベル・タイトル `Update next-media-delivery to X.Y.Z`・ブランチ `update-next-media-delivery-X.Y.Z`（全アプリ共通の書式）。本文はイメージ・ビルドのリンクと、GitHub Release と同じノート。
 - DB は持たないので、マイグレーションの手順は無い。
 
 ### GitHub Release
@@ -191,4 +200,4 @@ tag push ─┬─ checks（go vet / go test）───────────
 
 ### 作り直し（workflow_dispatch）
 
-Actions の「Release」を手動で実行し、`tag` に `v` を付けずに版（例 `0.2.0`）を入れる。イメージはその版で push し直し、検査を全部回して k8sg1 の PR を出す。Release は作らない（ノートの生成だけして PR 本文に使う）。ベースイメージの更新だけを取り込み直したいときなどに使う。
+Actions の「Release」を手動で実行し、`tag` に `v` を付けずに版（例 `0.2.0`）を入れる。イメージはその版で push し直し、検査を全部回してデプロイの PR を出す。Release は作らない（ノートの生成だけして PR 本文に使う）。ベースイメージの更新だけを取り込み直したいときなどに使う。

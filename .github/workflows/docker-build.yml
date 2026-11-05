@@ -1,7 +1,7 @@
 name: Release
 
 # リリース。v* タグの push で、検査（checks・e2e）を全部回し、本番イメージを ghcr へ push し、
-# 全部通ったら GitHub Release を作って k8sg1-repo へイメージの版を上げる PR を出す
+# 全部通ったら GitHub Release を作って k8s のマニフェストのリポジトリへイメージの版を上げる PR を出す
 # （流れは docs/development.md「リリース」）。
 on:
   push:
@@ -18,9 +18,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  K8S_REPO: highemerly/k8sg1-repo
-  # 同じイメージを使う prd のマニフェスト（スペース区切り）
-  K8S_MANIFEST_PATHS: "manifests/nmd/prd/web.yaml"
 
 jobs:
   # go vet / go test。build と並走する。定義は checks.yml に集約（ブランチの CI と同じもの）。
@@ -116,7 +113,7 @@ jobs:
 
   # GitHub Release をタグごと（パッチも含む）に作る。全検査が通ったときだけ＝Release がある版はデプロイしてよい版。
   # ノートは GitHub の自動生成（前回のタグからマージされた PR の一覧・英語。分類は .github/release.yml）。
-  # 同じノートを create-k8s-pr が k8sg1 の PR 本文に使う（変更の一覧の出どころを1つにする）。
+  # 同じノートを create-k8s-pr がデプロイの PR 本文に使う（変更の一覧の出どころを1つにする）。
   release:
     needs: [build, checks, e2e]
     runs-on: ubuntu-latest
@@ -157,15 +154,20 @@ jobs:
 
   create-k8s-pr:
     # ビルド・checks・e2e が全て成功したときだけ k8s マニフェストへ PR する（release が同じ条件で
-    # 待っているので、それを待てば足りる）。k8sg1 は Flux 同期なので、この PR のマージが
+    # 待っているので、それを待てば足りる）。マニフェストのリポジトリは Flux 同期なので、この PR のマージが
     # そのまま本番へのデプロイになる。
     needs: [build, release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # マニフェストのリポジトリは非公開。このリポジトリの Actions のログは誰でも読めるので、リポジトリ名と
+      # マニフェストのパス（image 行を持つ prd のもの、スペース区切り）もシークレットに置き、ログでは伏せる
+      K8S_REPO: ${{ secrets.K8SG1_REPO }}
+      K8S_MANIFEST_PATHS: ${{ secrets.K8SG1_MANIFEST_PATHS }}
 
     steps:
-      # 他のリポジトリへ push するので GITHUB_TOKEN は使えない。PAT で作った PR なので k8sg1 の CI も走る
+      # 他のリポジトリへ push するので GITHUB_TOKEN は使えない。PAT で作った PR なので向こうの CI も走る
       - name: Checkout k8s repo
         uses: actions/checkout@v7
         with:
@@ -187,7 +189,7 @@ jobs:
           done
 
       # 本文は英語・全アプリ共通の書式（イメージ・ビルドのリンク・release ジョブが生成したノート）。
-      # ノートの PR は完全な URL で書かれるので、k8sg1 の #N へのリンクに化けない。
+      # ノートの PR は完全な URL で書かれるので、マニフェストのリポジトリの #N へのリンクに化けない。
       # DB を持たないので、マイグレーションの節と requires-migration ラベルは無い。
       - name: Write PR body
         env:
@@ -212,6 +214,6 @@ jobs:
           commit-message: Update next-media-delivery to ${{ needs.build.outputs.version }}
           title: Update next-media-delivery to ${{ needs.build.outputs.version }}
           body-path: ${{ runner.temp }}/pr-body.md
-          # app-update: k8sg1 に大量に来る PR のうちアプリの版上げを見分ける（全アプリ共通）。
+          # app-update: マニフェストのリポジトリに大量に来る PR のうちアプリの版上げを見分ける（全アプリ共通）。
           # アプリ名はタイトルにあるのでアプリ別のラベルは付けない
           labels: app-update
