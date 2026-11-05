@@ -211,6 +211,8 @@ jobs:
           token: ${{ secrets.K8SG1_PAT }}
           branch: update-next-media-delivery-${{ needs.build.outputs.version }}
           delete-branch: true
+          # マニフェストのリポジトリには PR が大量に来るので、自分に assign して「Assigned to you」で見落とさないようにする
+          assignees: ${{ github.repository_owner }}
           commit-message: Update next-media-delivery to ${{ needs.build.outputs.version }}
           title: Update next-media-delivery to ${{ needs.build.outputs.version }}
           body-path: ${{ runner.temp }}/pr-body.md
