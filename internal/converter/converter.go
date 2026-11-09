@@ -5,6 +5,7 @@ package converter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/h2non/bimg"
@@ -50,6 +51,37 @@ type Config struct {
 	// pass through unchanged. Larger animations are flattened to a still image
 	// instead, so a huge GIF never gets re-served as an avatar.
 	AnimMaxSize int64
+	// MaxPixels caps width*height of an input that is decoded for
+	// conversion, so a small file declaring huge dimensions (a decompression
+	// bomb) is rejected before libvips allocates memory for it.
+	// 0 disables the check.
+	MaxPixels int64
+}
+
+// ErrUnsupportedInput is returned when the input is not one of the formats
+// accepted for conversion (see allowedInputTypes).
+var ErrUnsupportedInput = errors.New("converter: unsupported input format")
+
+// ErrTooManyPixels is returned when the input exceeds Config.MaxPixels.
+var ErrTooManyPixels = errors.New("converter: input exceeds the pixel limit")
+
+// allowedInputTypes are the only formats handed to libvips for decoding.
+//
+// The origin's Content-Type is only checked for an image/ prefix, and bimg
+// picks the libvips loader from the magic bytes, so without this list an
+// origin could label a PDF, TIFF or any ImageMagick-readable file as
+// image/png and have it parsed by poppler, libtiff or ImageMagick (the
+// Debian libvips42 package links all of them). Only the formats Misskey
+// itself converts are accepted. SVG is kept for custom emoji even though
+// libvips classes svgload as untrusted (VIPS_BLOCK_UNTRUSTED would block it).
+var allowedInputTypes = map[bimg.ImageType]bool{
+	bimg.JPEG: true,
+	bimg.PNG:  true,
+	bimg.GIF:  true,
+	bimg.WEBP: true,
+	bimg.HEIF: true,
+	bimg.AVIF: true,
+	bimg.SVG:  true,
 }
 
 // BimgConverter uses libvips via bimg for image processing.
@@ -87,24 +119,29 @@ func (c *BimgConverter) Convert(ctx context.Context, req Request) (*Result, erro
 	}
 	defer c.sem.Release()
 
+	// Variants that serve the original bytes never decode them.
 	switch req.Variant {
 	case variant.Raw:
 		// No conversion: return original data with detected MIME type.
 		return passthrough(req.Data), nil
+	case variant.Emoji, variant.Avatar:
+		if c.keepAnimation(req) {
+			return passthrough(req.Data), nil
+		}
+	}
 
+	if err := c.checkInput(req.Data); err != nil {
+		return nil, err
+	}
+
+	switch req.Variant {
 	case variant.Badge:
 		return c.convertPNG(req.Data, 96, 96)
 
 	case variant.Emoji:
-		if c.keepAnimation(req) {
-			return passthrough(req.Data), nil
-		}
 		return c.convertToFormat(req.Data, 128, 128, req.Format)
 
 	case variant.Avatar:
-		if c.keepAnimation(req) {
-			return passthrough(req.Data), nil
-		}
 		return c.convertToFormat(req.Data, 320, 320, req.Format)
 
 	case variant.Preview:
@@ -119,6 +156,27 @@ func (c *BimgConverter) Convert(ctx context.Context, req Request) (*Result, erro
 	default:
 		return nil, fmt.Errorf("converter: unknown variant %v", req.Variant)
 	}
+}
+
+// checkInput rejects inputs that must not reach a libvips decoder: formats
+// outside allowedInputTypes, and images larger than MaxPixels. Reading the
+// size only parses the header; the pixels are decoded later by Process.
+func (c *BimgConverter) checkInput(data []byte) error {
+	t := bimg.DetermineImageType(data)
+	if !allowedInputTypes[t] {
+		return fmt.Errorf("%w: %s", ErrUnsupportedInput, bimg.ImageTypeName(t))
+	}
+	if c.cfg.MaxPixels <= 0 {
+		return nil
+	}
+	size, err := bimg.NewImage(data).Size()
+	if err != nil {
+		return fmt.Errorf("converter: get size: %w", err)
+	}
+	if px := int64(size.Width) * int64(size.Height); px > c.cfg.MaxPixels {
+		return fmt.Errorf("%w: %dx%d", ErrTooManyPixels, size.Width, size.Height)
+	}
+	return nil
 }
 
 // keepAnimation reports whether an emoji/avatar request must be served as the

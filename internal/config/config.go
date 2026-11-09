@@ -76,6 +76,7 @@ type ConvertConfig struct {
 	AVIFQuality    int
 	AVIFSpeed      int
 	AnimMaxSize    int64
+	MaxPixels      int64
 }
 
 type FallbackConfig struct {
@@ -154,6 +155,7 @@ func Load() (*Config, error) {
 	cfg.Convert.AnimMaxSize = getEnvBytes("CONVERT_ANIM_MAX_SIZE", 8*1024*1024) // 8MiB
 	cfg.Convert.AVIFQuality = getEnvInt("CONVERT_AVIF_QUALITY", 60)
 	cfg.Convert.AVIFSpeed = getEnvInt("CONVERT_AVIF_SPEED", 6)
+	cfg.Convert.MaxPixels = int64(getEnvInt("CONVERT_MAX_PIXELS", 100_000_000))
 
 	cfg.Fallback.Avatar = os.Getenv("FALLBACK_AVATAR")
 	cfg.Fallback.Emoji = os.Getenv("FALLBACK_EMOJI")

@@ -573,6 +573,7 @@ Negative Cache (142 entries):
 | `CONVERT_ANIM_MAX_SIZE` | `8MiB` | `emoji=1` / `avatar=1` でアニメーション原本をそのまま返す上限サイズ。超過時は従来通り静止画に変換する |
 | `CONVERT_AVIF_QUALITY` | `60` | AVIF出力品質（1-100） |
 | `CONVERT_AVIF_SPEED` | `6` | AVIFエンコード速度（0-8、高いほど速い・低圧縮） |
+| `CONVERT_MAX_PIXELS` | `100000000` | 変換する入力の画素数（幅×高さ）の上限。超えると変換失敗として扱う。`0` で無効 |
 | `NEGATIVE_CACHE_TTL_40X` | `24h` | 40x の Negative Cache TTL |
 | `NEGATIVE_CACHE_TTL_5XX` | `5m` | 5xx の Negative Cache TTL |
 | `LOG_LEVEL` | `INFO` | ログレベル（`DEBUG` / `INFO` / `WARN` / `ERROR`） |
@@ -747,13 +748,24 @@ RFC 8586 で標準化された `CDN-Loop` ヘッダを使用する。
 
 Go + bimg（libvips wrapper）を使用。
 
-- 対応入力: JPEG, PNG, WebP, GIF, AVIF, HEIC
+- 対応入力: JPEG, PNG, WebP, GIF, AVIF, HEIC, SVG（それ以外は変換しない。[変換に渡す入力の制限](#変換に渡す入力の制限)参照）
 - 出力: WebP または AVIF（badge=1 のみ PNG 固定）
   - `.avif` 拡張子指定時: emoji / avatar / preview → AVIF 出力
   - その他: WebP 出力（従来動作）
 - アニメーション: 変換を伴う variant はすべて先頭フレームのみになる（libvips の制約。[アニメーション画像の扱い](#アニメーション画像の扱い)参照）。
   emoji=1 / avatar=1 はアニメーション入力を変換せず原本のまま返すことでアニメーションを維持する
 - 変換パラメータなし（rawアクセス）の場合は変換スキップ、オリジナルをそのまま返す
+
+### 変換に渡す入力の制限
+
+オリジンの Content-Type は `image/` などの接頭辞しか見ず、bimg はボディのマジックバイトから libvips のローダを選ぶ。Debian の `libvips42` は ImageMagick・poppler（PDF）・libtiff・OpenSlide なども使えるため、制限しないと、`image/png` と偽った PDF などをこれらのパーサーに渡せてしまう。そこで変換する variant（raw 以外。emoji/avatar のアニメーション原本パススルーも除く）では、デコードの前に次を確認する。
+
+- 形式（マジックバイト）が JPEG / PNG / GIF / WebP / HEIF / AVIF / SVG のいずれか。それ以外（PDF・TIFF・BMP などの ImageMagick 経由の形式・不明）は libvips に渡さない
+- 画素数（幅×高さ。ヘッダだけ読む）が `CONVERT_MAX_PIXELS`（既定 1億）以下。ファイルは小さいのに巨大な寸法を宣言する画像（解凍爆弾）でメモリを使い切らないため
+
+どちらかに当たると変換失敗として扱う（fallback なし → 502、fallback あり → 元画像をそのまま 200。仕様表の「変換失敗」の行と同じ）。
+
+SVG は libvips では「信頼できないローダ」に分類される（`VIPS_BLOCK_UNTRUSTED` で止まる）が、カスタム絵文字に使われるため許可している。librsvg の脆弱性への対応は Debian のパッケージ更新（ベースイメージの digest 更新）に頼る。
 
 ### 変換の同時実行数制限（セマフォ）
 
