@@ -185,6 +185,7 @@ GET /proxy/{filename}?url=...&avatar=1
   4.  NegativeCache  → HIT: Nmd-Cache="L1=HIT/NEGATIVE4XX|5XX"、404/503 を返す
   6.  CircuitBreaker → DENY: Nmd-Cache="L1=DENY/WAIT"、503 を返す
   7.  Blacklist      → DENY: Nmd-Cache="L1=DENY/BAD_DOMAIN"、403 を返す
+                           ドメインと IP 直指定だけを見る（DNS 解決はしない。L1 HIT も毎回ここを通るため）
                            （リダイレクト先・接続先 IP は 10. のフェッチ中に検査し、同じ 403 を返す）
   8.  L1 lookup      → HIT: Nmd-Cache="L1=HIT"、AccessTracker 更新（非同期）
                            If-None-Match 一致 または If-Modified-Since >= Last-Modified → 304 Not Modified
@@ -702,7 +703,7 @@ ftp://...           → 403
 環境変数またはファイルで管理。ファイルはホットリロード対応（再起動不要）。
 
 - ドメインは大文字小文字と末尾のドットを無視して比べ、サブドメインも対象にする（`example.com` を登録すると `cdn.example.com` も拒否する。Misskey のブロックしたインスタンスと同じ）
-- IP/CIDR は、URL の IP 直指定に加えて、フェッチ時に実際に接続する IP（名前を解決した結果）にも適用する（dialer の Control。SSRF の IP チェックと同じ箇所）
+- IP/CIDR は、URL の IP 直指定に加えて、フェッチ時に実際に接続する IP（名前を解決した結果）にも適用する（dialer の Control。SSRF の IP チェックと同じ箇所）。リクエストの受付時（L1 を見る前）には名前を解決しないので、キャッシュヒットで DNS を待つことはない
 - リダイレクト先のホストも検査する（リダイレクトでブラックリストを迂回させない）
 - どの段階で拒否しても、レスポンスは 403・`L1=DENY/BAD_DOMAIN`・`CACHE_CONTROL_DENY`。Circuit Breaker の失敗には数えず、Negative Cache にも記録しない
 
