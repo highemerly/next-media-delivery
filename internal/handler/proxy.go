@@ -227,7 +227,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// debug=true bypasses singleflight to ensure a fresh request every time.
 	var sfVal *sfResult
 	if debug {
-		val, err := h.originFetch(ctx, key, rawURL, v, f, domain, debug, parsed.NoAnim)
+		val, err := h.sharedFetch(key, rawURL, v, f, domain, debug, parsed.NoAnim)
 		if err != nil {
 			h.handleOriginError(ctx, w, key, rawURL, err, xcachePrefix, wantFallback, 0, v, vkey)
 			return
@@ -235,29 +235,23 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sfVal = val
 	} else {
 		// Singleflight deduplicates concurrent requests for the same key.
-		// The fetch goroutine runs with the first caller's ctx intentionally:
-		// if that caller times out or disconnects, ctx is cancelled, the HTTP
-		// client aborts the origin request, and all waiters (B, C, …) receive
-		// the same error via ch. This is the desired behaviour — there is no
-		// point keeping an origin request alive when the triggering caller is
-		// already gone.
+		// The shared fetch runs on its own context (see sharedFetch), so a
+		// caller that disconnects or times out only stops waiting: the fetch
+		// keeps going for the other waiters and still populates the cache.
 		ch := h.sf.DoChan(key, func() (interface{}, error) {
-			return h.originFetch(ctx, key, rawURL, v, f, domain, debug, parsed.NoAnim)
+			return h.sharedFetch(key, rawURL, v, f, domain, debug, parsed.NoAnim)
 		})
 		select {
 		case res := <-ch:
 			if res.Err != nil {
-				// Covers both origin errors and ctx cancellation propagated
-				// through originFetch (e.g. REQUEST_TIMEOUT, client disconnect).
 				h.handleOriginError(ctx, w, key, rawURL, res.Err, xcachePrefix, wantFallback, 0, v, vkey)
 				return
 			}
 			sfVal = res.Val.(*sfResult)
 		case <-ctx.Done():
-			// This caller's own context expired before the shared fetch
-			// completed. The fetch goroutine will also see the cancellation
-			// shortly and fail, causing any other waiters to receive an error
-			// via the case above.
+			// This caller's own context expired (REQUEST_TIMEOUT or client
+			// disconnect) before the shared fetch completed. Only this caller
+			// gives up; the shared fetch is unaffected.
 			response.WriteError(w, http.StatusGatewayTimeout,
 				h.deps.Cfg.Cache.Control5XX,
 				xcachePrefix+", ORI=TIMEOUT",
@@ -270,15 +264,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if sfVal.originErr != nil {
 		h.handleOriginError(ctx, w, key, rawURL, sfVal.originErr, xcachePrefix, wantFallback, sfVal.fetchDur, v, vkey)
 		return
-	}
-
-	// Async cache writes — skipped when skipCache is set (e.g. bad Content-Type).
-	if !sfVal.skipCache {
-		h.asyncL1Put(key, sfVal.data, sfVal.contentType)
-		if h.deps.L2.Enabled() {
-			h.asyncL2Put(key, sfVal.data, sfVal.contentType)
-		}
-		h.asyncTrackerSet(key)
 	}
 
 	xcache := xcachePrefix + ", ORI=200"
@@ -303,8 +288,42 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// sharedFetch runs originFetch on a context detached from any single request
+// and writes the result to the caches once.
+//
+// It is called inside singleflight, so the request that happened to start it
+// must not be able to cancel it: if that client disconnected (a browser
+// dropping an off-screen image does this all the time), the cancellation would
+// fail every other waiter and be counted as an origin failure by the circuit
+// breaker, letting anyone open the circuit for a domain with a handful of
+// aborted requests. The detached context is bounded by REQUEST_TIMEOUT (the
+// HTTP client has its own, shorter FETCH_TIMEOUT) and cancelled on shutdown.
+//
+// Cache writes happen here rather than in each waiter, so a burst of N waiters
+// writes L1/L2 once instead of N times, and a fetch whose callers all left
+// still warms the cache.
+func (h *ProxyHandler) sharedFetch(key, rawURL string, v variant.Variant, f format.OutputFormat, domain string, debug, noAnim bool) (*sfResult, error) {
+	ctx, cancel := context.WithTimeout(h.deps.ShutdownCtx, h.deps.Cfg.Server.RequestTimeout)
+	defer cancel()
+
+	res, err := h.originFetch(ctx, key, rawURL, v, f, domain, debug, noAnim)
+	if err != nil {
+		return nil, err
+	}
+	// skipCache is set on errors that must not be cached (e.g. bad
+	// Content-Type) and for debug requests.
+	if res.originErr == nil && !res.skipCache {
+		h.asyncL1Put(key, res.data, res.contentType)
+		if h.deps.L2.Enabled() {
+			h.asyncL2Put(key, res.data, res.contentType)
+		}
+		h.asyncTrackerSet(key)
+	}
+	return res, nil
+}
+
 // originFetch performs the actual fetch + convert pipeline.
-// Called inside singleflight, so it runs at most once per key per burst.
+// Called via sharedFetch, so it runs at most once per key per burst.
 func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v variant.Variant, f format.OutputFormat, domain string, debug, noAnim bool) (*sfResult, error) {
 	// Fetch.
 	t0 := time.Now()
