@@ -50,10 +50,11 @@ func mustParsePrefixes(cidrs []string) []netip.Prefix {
 // ipGuard decides whether an origin IP may be connected to.
 type ipGuard struct {
 	allowed []netip.Prefix // exempted from blockedPrefixes
+	deny    Denylist       // optional origin blacklist (IP/CIDR rules)
 }
 
-func newIPGuard(allowedPrivateCIDRs []string) *ipGuard {
-	g := &ipGuard{}
+func newIPGuard(allowedPrivateCIDRs []string, deny Denylist) *ipGuard {
+	g := &ipGuard{deny: deny}
 	for _, cidr := range allowedPrivateCIDRs {
 		p, err := netip.ParsePrefix(cidr)
 		if err != nil {
@@ -94,6 +95,9 @@ func (g *ipGuard) control(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return fmt.Errorf("ssrf: invalid address %q: %w", address, err)
 	}
+	if g.deny != nil && g.deny.DeniesIP(ap.Addr()) {
+		return fmt.Errorf("%w: IP %s", ErrDenied, ap.Addr())
+	}
 	return g.check(ap.Addr())
 }
 
@@ -103,8 +107,8 @@ type ssrfTransport struct {
 	guard *ipGuard
 }
 
-func newSSRFTransport(allowedPrivateCIDRs []string) *ssrfTransport {
-	guard := newIPGuard(allowedPrivateCIDRs)
+func newSSRFTransport(allowedPrivateCIDRs []string, deny Denylist) *ssrfTransport {
+	guard := newIPGuard(allowedPrivateCIDRs, deny)
 
 	base := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
