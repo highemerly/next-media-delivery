@@ -16,6 +16,14 @@ import (
 
 const shutdownTimeout = 30 * time.Second
 
+// Defaults for the per-connection timeouts. Without them a client can hold a
+// connection (and its goroutine) open indefinitely by sending the request
+// headers one byte at a time (Slowloris).
+const (
+	defaultReadHeaderTimeout = 10 * time.Second
+	defaultReadTimeout       = 30 * time.Second
+)
+
 // Server holds both the proxy and admin HTTP servers.
 type Server struct {
 	proxy *http.Server
@@ -29,18 +37,41 @@ type Config struct {
 	Host      string
 	Port      int
 	AdminPort int
+	// WriteTimeout bounds the whole response, from the end of the request
+	// headers to the last byte written (WRITE_TIMEOUT). It must exceed
+	// REQUEST_TIMEOUT, which bounds the handler's own work, and leaves the
+	// rest for sending the body, so a client that reads very slowly cannot
+	// pin the response buffer in memory indefinitely. 0 disables it.
+	WriteTimeout time.Duration
+	// ReadHeaderTimeout and ReadTimeout default to defaultReadHeaderTimeout
+	// and defaultReadTimeout when zero (overridable for tests).
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
 }
 
 // New creates a Server. Call SetHandlers before Run.
 func New(cfg Config) *Server {
+	readHeader := cfg.ReadHeaderTimeout
+	if readHeader == 0 {
+		readHeader = defaultReadHeaderTimeout
+	}
+	read := cfg.ReadTimeout
+	if read == 0 {
+		read = defaultReadTimeout
+	}
 	return &Server{
 		proxy: &http.Server{
-			Addr:        net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port)),
-			IdleTimeout: 60 * time.Second,
+			Addr:              net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port)),
+			ReadHeaderTimeout: readHeader,
+			ReadTimeout:       read,
+			WriteTimeout:      cfg.WriteTimeout,
+			IdleTimeout:       60 * time.Second,
 		},
 		admin: &http.Server{
-			Addr:        net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", cfg.AdminPort)),
-			IdleTimeout: 60 * time.Second,
+			Addr:              net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", cfg.AdminPort)),
+			ReadHeaderTimeout: readHeader,
+			ReadTimeout:       read,
+			IdleTimeout:       60 * time.Second,
 		},
 	}
 }

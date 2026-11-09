@@ -568,6 +568,7 @@ Negative Cache (142 entries):
 | `FETCH_TIMEOUT` | `30s` | オリジンフェッチのタイムアウト |
 | `FETCH_MAX_REDIRECTS` | `3` | オリジンフェッチ時のリダイレクト追従上限 |
 | `REQUEST_TIMEOUT` | `60s` | リクエスト全体のタイムアウト（フェッチ+変換含む） |
+| `WRITE_TIMEOUT` | `120s` | レスポンスの書き込みを含むリクエスト全体の上限（`http.Server.WriteTimeout`）。`REQUEST_TIMEOUT` より大きくすること（起動時に検証）。`0` で無効 |
 | `FALLBACK_AVATAR` | 人型シルエット（組込） | fallback時のアバター画像（ファイルパスまたはbase64） |
 | `FALLBACK_EMOJI` | カラーバー（組込） | fallback時の絵文字画像 |
 | `FALLBACK_BADGE` | カラーバーPNG（組込） | fallback時のバッジ画像 |
@@ -825,6 +826,8 @@ Loki への転送を前提とした JSON 構造化ログを出力する。アク
 ### HTTPサーバー（クライアント側）
 
 - **IdleTimeout**: デフォルト無制限のため明示的に設定する（例: 60s）。アイドル接続の蓄積を防ぐ
+- **ReadHeaderTimeout / ReadTimeout**: 10s / 30s（固定）。ヘッダを少しずつ送って接続を握り続けるクライアント（Slowloris）を切る。proxy・admin の両方
+- **WriteTimeout**: `WRITE_TIMEOUT`（既定 120s）。リクエストのヘッダを読み終えてからレスポンスを書き終えるまでの上限。`REQUEST_TIMEOUT`（フェッチ・変換）の残りがボディの送信に使える。極端に遅く読むクライアントが、メモリ上のレスポンスのボディを握り続けないようにする。大きな動画を遅い回線へ直接返す構成では、この時間内に送り切れないと途中で切れる
 - **最大同時接続数**: 大量リクエストによるgoroutine爆発を防ぐためセマフォで制限する
 
 ### HTTPクライアント（オリジン側）
