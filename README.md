@@ -229,7 +229,8 @@ GET /proxy/{filename}?url=...&avatar=1
 - `CACHE_DIR` 環境変数で指定されたパスにファイルを置く
 - k8s では emptyDir をマウント（Pod 再起動で消えるが意図どおりOK）
 - アプリ内の cleanup goroutine が定期的に容量チェック
-  - `CACHE_MAX_BYTES` 超過時、アクセス時刻が古いものから削除
+  - `CACHE_MAX_BYTES` 超過時、最終アクセス時刻が古いものから削除（LRU）
+    - 最終アクセス時刻は AccessTracker（L1・L2 ヒット時とオリジンフェッチ成功時に更新）。記録が無いキー（Pod 再起動後など）はファイルの書き込み時刻（mtime）を使う
   - `CACHE_TARGET_BYTES` まで削除してバタつきを防止する
 
 ### L2: オブジェクトストレージ（S3互換）
@@ -334,6 +335,7 @@ Negative Cache との使い分け:
 |---|---|
 | 追加 / 更新 | L1・L2 ヒット時、オリジンフェッチ成功時 |
 | 削除 | L1 cleanup goroutine がファイルを削除するとき同時に削除。定期 GC で孤立エントリ（ファイルが存在しないキー）を削除 |
+| 参照 | L1 cleanup goroutine が、追い出す順（最終アクセスが古い順）を決めるとき |
 
 Redis 実装: `SET key timestamp EX {S3_LIFECYCLE_DAYS in seconds}`。TTL を L2 Lifecycle に合わせることで GC が不要になる。
 
