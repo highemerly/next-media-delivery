@@ -192,9 +192,6 @@ GET /proxy/{filename}?url=...&avatar=1
   9.  L2 lookup      → HIT: Nmd-Cache="L1=MISS, L2=HIT"
                            L1 書き込み（非同期）、AccessTracker 更新（非同期）、レスポンス
  10.  singleflight   → 同一キーへの並列リクエストをまとめ、フェッチ・変換を 1 回だけ実行
-                           フェッチ・変換はリクエストから切り離したコンテキスト（上限 REQUEST_TIMEOUT）で動く
-                           （クライアントの切断・タイムアウトは、そのリクエストが待つのをやめるだけ。
-                             共有のフェッチは止めず、CircuitBreaker の失敗にも数えない）
        a. SSRF guard: DNS 解決 → プライベート IP チェック → TCP 接続先 IP を再検証
        b. fetcher.Fetch() → 取得失敗（40x/5xx）の場合:
               NegativeCache.Set + CircuitBreaker.RecordFailure
@@ -216,6 +213,9 @@ GET /proxy/{filename}?url=...&avatar=1
           共有のフェッチの中で 1 回だけ行う（待っていたリクエストが全員去っていても書く）
        g. singleflight 共有値: {data, contentType, fetchDur, convertDur}
           → 待機していた全リクエストが同じ値を受け取り、それぞれ独立してレスポンスを書く
+       フェッチ・変換（a〜f）はリクエストから切り離したコンテキスト（上限 REQUEST_TIMEOUT）で動く
+       （クライアントの切断・タイムアウトは、そのリクエストが待つのをやめるだけ。
+         共有のフェッチは止めず、CircuitBreaker の失敗にも数えない）
  11.  response.Write() → Nmd-Cache・Server-Timing・Cache-Control・CSP 等の固定ヘッダを一括セット
                          Age/Set-Cookie/Server/X-Powered-By/HSTS 等を削除
  12.  ボディ書き込み
