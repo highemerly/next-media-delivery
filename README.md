@@ -192,6 +192,9 @@ GET /proxy/{filename}?url=...&avatar=1
   9.  L2 lookup      → HIT: Nmd-Cache="L1=MISS, L2=HIT"
                            L1 書き込み（非同期）、AccessTracker 更新（非同期）、レスポンス
  10.  singleflight   → 同一キーへの並列リクエストをまとめ、フェッチ・変換を 1 回だけ実行
+                           フェッチ・変換はリクエストから切り離したコンテキスト（上限 REQUEST_TIMEOUT）で動く
+                           （クライアントの切断・タイムアウトは、そのリクエストが待つのをやめるだけ。
+                             共有のフェッチは止めず、CircuitBreaker の失敗にも数えない）
        a. SSRF guard: DNS 解決 → プライベート IP チェック → TCP 接続先 IP を再検証
        b. fetcher.Fetch() → 取得失敗（40x/5xx）の場合:
               NegativeCache.Set + CircuitBreaker.RecordFailure
@@ -210,7 +213,8 @@ GET /proxy/{filename}?url=...&avatar=1
                   wantFallback=true → 元画像をそのまま 200 で返却（キャッシュしない）
                   wantFallback=false → 502 返却
        f. L1 書き込み（非同期）、L2 書き込み（非同期・fire-and-forget）、AccessTracker 更新（非同期）
-       f. singleflight 共有値: {data, contentType, fetchDur, convertDur}
+          共有のフェッチの中で 1 回だけ行う（待っていたリクエストが全員去っていても書く）
+       g. singleflight 共有値: {data, contentType, fetchDur, convertDur}
           → 待機していた全リクエストが同じ値を受け取り、それぞれ独立してレスポンスを書く
  11.  response.Write() → Nmd-Cache・Server-Timing・Cache-Control・CSP 等の固定ヘッダを一括セット
                          Age/Set-Cookie/Server/X-Powered-By/HSTS 等を削除
@@ -282,6 +286,8 @@ t=200ms Aの処理完了 → A・B・C 全員に同じ結果を返す
 ```
 
 バズった投稿の画像など、キャッシュが温まる前に同時アクセスが集中するケースで特に効果がある。
+
+共有のフェッチは、最初のリクエストのコンテキストではなく、リクエストから切り離したコンテキスト（上限 `REQUEST_TIMEOUT`、シャットダウンで取り消し）で動く。最初のリクエストのクライアントが切断しても、B・C は巻き添えで失敗せず、結果はキャッシュに書かれる。切断が「オリジンの失敗」として Circuit Breaker に数えられることもない（数えると、同じドメインへのリクエストを数回送ってすぐ切るだけで、そのドメインを遮断できてしまう）。
 
 ## キャッシュ設計（異常系）
 
