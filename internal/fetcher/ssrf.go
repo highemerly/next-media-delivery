@@ -51,7 +51,10 @@ func newSSRFTransport(allowedPrivateCIDRs []string) *ssrfTransport {
 	}
 
 	base := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		// Never use HTTP(S)_PROXY: through a proxy the dialer connects to
+		// the proxy, so the SSRF check would see the proxy's address and
+		// never the origin's.
+		Proxy:                 nil,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          200,
 		IdleConnTimeout:       90 * time.Second,
