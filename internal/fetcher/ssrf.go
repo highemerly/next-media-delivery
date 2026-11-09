@@ -1,54 +1,110 @@
 package fetcher
 
 import (
-	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
+	"syscall"
 	"time"
 )
 
-// blockedCIDRs are always denied unless overridden by AllowedPrivateCIDRs.
-var blockedCIDRs = mustParseCIDRs([]string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",
-	"::1/128",
-	"169.254.0.0/16",
-	"fd00::/8",
-	"100.64.0.0/10", // Carrier-grade NAT
-	"0.0.0.0/8",
-	"240.0.0.0/4",
+// blockedPrefixes are always denied unless overridden by AllowedPrivateCIDRs.
+var blockedPrefixes = mustParsePrefixes([]string{
+	// IPv4
+	"0.0.0.0/8",      // "this network"; 0.0.0.0 reaches the local host
+	"10.0.0.0/8",     // private
+	"100.64.0.0/10",  // carrier-grade NAT
+	"127.0.0.0/8",    // loopback
+	"169.254.0.0/16", // link-local, cloud metadata
+	"172.16.0.0/12",  // private
+	"192.0.0.0/24",   // IETF protocol assignments
+	"192.168.0.0/16", // private
+	"198.18.0.0/15",  // benchmarking
+	"224.0.0.0/4",    // multicast
+	"240.0.0.0/4",    // reserved, broadcast
+	// IPv6 (IPv4-mapped addresses are unmapped and checked as IPv4)
+	"::/128",    // unspecified; connecting to [::] reaches the local host
+	"::1/128",   // loopback
+	"fc00::/7",  // unique local (includes fd00::/8, e.g. AWS fd00:ec2::254)
+	"fe80::/10", // link-local
+	"ff00::/8",  // multicast
 })
 
-func mustParseCIDRs(cidrs []string) []*net.IPNet {
-	nets := make([]*net.IPNet, 0, len(cidrs))
+// nat64Prefix is the well-known NAT64 prefix (RFC 6052). An address in it
+// carries an IPv4 address in its last 32 bits, which is what the NAT64
+// gateway connects to, so that IPv4 address is checked instead. Blocking the
+// whole prefix would break every IPv4-only origin on an IPv6-only network
+// with DNS64.
+var nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+
+func mustParsePrefixes(cidrs []string) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(cidrs))
 	for _, c := range cidrs {
-		_, ipNet, err := net.ParseCIDR(c)
-		if err != nil {
-			panic("invalid built-in CIDR: " + c)
-		}
-		nets = append(nets, ipNet)
+		out = append(out, netip.MustParsePrefix(c))
 	}
-	return nets
+	return out
 }
 
-// ssrfTransport wraps http.Transport with a custom DialContext that enforces SSRF rules.
+// ipGuard decides whether an origin IP may be connected to.
+type ipGuard struct {
+	allowed []netip.Prefix // exempted from blockedPrefixes
+}
+
+func newIPGuard(allowedPrivateCIDRs []string) *ipGuard {
+	g := &ipGuard{}
+	for _, cidr := range allowedPrivateCIDRs {
+		p, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			slog.Warn("ssrf: ignoring invalid ORIGIN_ALLOWED_PRIVATE_NETWORKS entry", "cidr", cidr, "err", err)
+			continue
+		}
+		g.allowed = append(g.allowed, p.Masked())
+	}
+	return g
+}
+
+func (g *ipGuard) check(ip netip.Addr) error {
+	ip = ip.WithZone("").Unmap()
+	for _, p := range g.allowed {
+		if p.Contains(ip) {
+			return nil
+		}
+	}
+	if nat64Prefix.Contains(ip) {
+		b := ip.As16()
+		return g.check(netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}))
+	}
+	for _, p := range blockedPrefixes {
+		if p.Contains(ip) {
+			return fmt.Errorf("ssrf: IP %s is in blocked range %s", ip, p)
+		}
+	}
+	return nil
+}
+
+// control runs after DNS resolution and immediately before each connect(2),
+// with the exact IP being connected to. Checking here (rather than resolving
+// the name ourselves first) leaves no window for DNS rebinding, covers every
+// address the dialer tries (Happy Eyeballs, fallbacks, redirects), and does
+// not apply to the resolver's own connections to the DNS server.
+func (g *ipGuard) control(_, address string, _ syscall.RawConn) error {
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return fmt.Errorf("ssrf: invalid address %q: %w", address, err)
+	}
+	return g.check(ap.Addr())
+}
+
+// ssrfTransport wraps http.Transport with a dialer that enforces SSRF rules.
 type ssrfTransport struct {
-	base    *http.Transport
-	allowed []*net.IPNet // CIDRs that are exempted from the block list
+	base  *http.Transport
+	guard *ipGuard
 }
 
 func newSSRFTransport(allowedPrivateCIDRs []string) *ssrfTransport {
-	allowed := make([]*net.IPNet, 0, len(allowedPrivateCIDRs))
-	for _, cidr := range allowedPrivateCIDRs {
-		_, ipNet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		allowed = append(allowed, ipNet)
-	}
+	guard := newIPGuard(allowedPrivateCIDRs)
 
 	base := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -60,66 +116,15 @@ func newSSRFTransport(allowedPrivateCIDRs []string) *ssrfTransport {
 		DisableKeepAlives:     false,
 	}
 
-	t := &ssrfTransport{base: base, allowed: allowed}
-	base.DialContext = t.dialContext
-	return t
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   guard.control,
+	}
+	base.DialContext = dialer.DialContext
+	return &ssrfTransport{base: base, guard: guard}
 }
 
 func (t *ssrfTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
-}
-
-// dialContext resolves the hostname and validates the IP before dialing.
-// This prevents DNS rebinding by using the resolved IP directly.
-func (t *ssrfTransport) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, fmt.Errorf("ssrf: invalid addr %q: %w", addr, err)
-	}
-
-	// Reject direct IP addresses (no hostname to resolve).
-	if ip := net.ParseIP(host); ip != nil {
-		if err := t.checkIP(ip); err != nil {
-			return nil, err
-		}
-		d := &net.Dialer{Timeout: 10 * time.Second}
-		return d.DialContext(ctx, network, addr)
-	}
-
-	// Resolve hostname.
-	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, fmt.Errorf("ssrf: dns lookup failed for %q: %w", host, err)
-	}
-	if len(addrs) == 0 {
-		return nil, fmt.Errorf("ssrf: no addresses resolved for %q", host)
-	}
-
-	// Validate all resolved IPs.
-	for _, a := range addrs {
-		if err := t.checkIP(a.IP); err != nil {
-			return nil, err
-		}
-	}
-
-	// Dial the first resolved IP directly (prevents DNS rebinding).
-	resolvedAddr := net.JoinHostPort(addrs[0].IP.String(), port)
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	return d.DialContext(ctx, network, resolvedAddr)
-}
-
-func (t *ssrfTransport) checkIP(ip net.IP) error {
-	// Check allow list first.
-	for _, allowed := range t.allowed {
-		if allowed.Contains(ip) {
-			return nil
-		}
-	}
-	// Check block list.
-	for _, blocked := range blockedCIDRs {
-		if blocked.Contains(ip) {
-			return fmt.Errorf("ssrf: IP %s is in blocked range %s", ip, blocked)
-		}
-	}
-	return nil
 }
