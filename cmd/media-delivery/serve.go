@@ -92,9 +92,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Build server (WaitGroup is fixed from here).
 	srv := server.New(server.Config{
-		Host:      cfg.Server.Host,
-		Port:      cfg.Server.Port,
-		AdminPort: cfg.Admin.Port,
+		Host:         cfg.Server.Host,
+		Port:         cfg.Server.Port,
+		AdminPort:    cfg.Admin.Port,
+		WriteTimeout: cfg.Server.WriteTimeout,
 	})
 
 	bl := blacklist.New(

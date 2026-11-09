@@ -26,6 +26,7 @@ type ServerConfig struct {
 	Host           string
 	Port           int
 	RequestTimeout time.Duration
+	WriteTimeout   time.Duration
 	CDNName        string
 }
 
@@ -116,6 +117,7 @@ func Load() (*Config, error) {
 	cfg.Server.Host = getEnv("HOST", "0.0.0.0")
 	cfg.Server.Port = getEnvInt("PORT", 3000)
 	cfg.Server.RequestTimeout = getEnvDuration("REQUEST_TIMEOUT", 60*time.Second)
+	cfg.Server.WriteTimeout = getEnvDuration("WRITE_TIMEOUT", 120*time.Second)
 	cfg.Server.CDNName = os.Getenv("CDN_NAME")
 
 	cfg.Admin.Port = getEnvInt("ADMIN_PORT", 3001)
@@ -188,6 +190,10 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if c.Server.WriteTimeout > 0 && c.Server.WriteTimeout <= c.Server.RequestTimeout {
+		return fmt.Errorf("WRITE_TIMEOUT (%s) must be greater than REQUEST_TIMEOUT (%s)",
+			c.Server.WriteTimeout, c.Server.RequestTimeout)
+	}
 	if c.S3.Enabled {
 		if c.S3.RenewAfterDays >= c.S3.LifecycleDays {
 			return fmt.Errorf("S3_RENEW_AFTER_DAYS (%d) must be less than S3_LIFECYCLE_DAYS (%d)",
