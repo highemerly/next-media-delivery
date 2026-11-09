@@ -87,6 +87,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		AVIFQuality:    cfg.Convert.AVIFQuality,
 		AVIFSpeed:      cfg.Convert.AVIFSpeed,
 		AnimMaxSize:    cfg.Convert.AnimMaxSize,
+		MaxPixels:      cfg.Convert.MaxPixels,
 	})
 	defer converter.Shutdown()
 
