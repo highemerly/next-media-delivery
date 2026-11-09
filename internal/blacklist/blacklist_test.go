@@ -53,3 +53,16 @@ func TestIsDeniedTrailingDot(t *testing.T) {
 		t.Error("a trailing dot must not bypass the domain blacklist")
 	}
 }
+
+// IsDenied must not resolve names (it runs on every request, cache hits
+// included). A name that resolves to a blocked IP is refused by the fetcher
+// when it connects, not here.
+func TestIsDeniedDoesNotResolve(t *testing.T) {
+	bl := New(nil, []string{"127.0.0.0/8", "::1/128"}, "")
+	if bl.IsDenied("http://localhost/a.png") {
+		t.Error("IsDenied resolved localhost; IP rules for names belong to the fetcher's dialer")
+	}
+	if !bl.IsDenied("http://127.0.0.1/a.png") {
+		t.Error("an IP literal in a blocked range must still be denied up front")
+	}
+}

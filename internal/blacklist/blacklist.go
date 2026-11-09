@@ -44,27 +44,18 @@ func New(domains, ips []string, filePath string) *Blacklist {
 }
 
 // IsDenied returns true if the given raw URL's host is blocked.
+//
+// It does not resolve the name: this runs before the L1 lookup on every
+// request, cache hits included, and a DNS round trip there would slow down
+// every hit. IP/CIDR rules for names are enforced by the fetcher on the IPs it
+// actually connects to (DeniesIP), so only a request that reaches the origin
+// pays for resolution.
 func (bl *Blacklist) IsDenied(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
-	host := u.Hostname()
-	if bl.DeniesHost(host) {
-		return true
-	}
-
-	// IP check of the resolved name.
-	if net.ParseIP(host) == nil {
-		addrs, err := net.LookupHost(host)
-		if err != nil || len(addrs) == 0 {
-			return false
-		}
-		if ip, err := netip.ParseAddr(addrs[0]); err == nil {
-			return bl.DeniesIP(ip)
-		}
-	}
-	return false
+	return bl.DeniesHost(u.Hostname())
 }
 
 // DeniesHost reports whether host (a name or an IP literal, as in
