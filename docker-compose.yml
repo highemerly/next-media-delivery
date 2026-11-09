@@ -48,6 +48,9 @@ services:
       - "${ADMIN_PORT:-3001}:${ADMIN_PORT:-3001}"
     tmpfs:
       - /cache
+    # 13i: ブラックリストの IP（.env.ci の ORIGIN_BLACKLIST_IPS 198.51.100.0/24）に解決される名前
+    extra_hosts:
+      - "blocked-ip.test:198.51.100.7"
     depends_on:
       httpbin:
         condition: service_healthy

@@ -333,6 +333,11 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 		if errors.Is(err, fetcher.ErrFileTooLarge) {
 			return &sfResult{fetchDur: fetchDur, originErr: &fileTooLargeError{}}, nil
 		}
+		// A redirect target or a dialed IP is blacklisted: our policy, not
+		// an origin failure, so the circuit breaker does not count it.
+		if errors.Is(err, fetcher.ErrDenied) {
+			return &sfResult{fetchDur: fetchDur, originErr: &deniedError{err: err}}, nil
+		}
 		h.deps.Circuit.RecordFailure(ctx, domain) //nolint:errcheck
 		return &sfResult{fetchDur: fetchDur, originErr: &networkError{err: err, timeout: isTimeoutError(err)}}, nil
 	}
@@ -425,6 +430,18 @@ func (h *ProxyHandler) originFetch(ctx context.Context, key, rawURL string, v va
 }
 
 func (h *ProxyHandler) handleOriginError(ctx context.Context, w http.ResponseWriter, key, rawURL string, err error, xcachePrefix string, wantFallback bool, fetchDur time.Duration, v variant.Variant, vkey string) {
+	// Blacklisted redirect target or resolved IP: same response as the
+	// up-front blacklist check (step 7), no fallback, not negatively cached
+	// (the blacklist can be reloaded at any time).
+	if de, ok := err.(*deniedError); ok {
+		slog.Warn("origin denied by blacklist", "url", rawURL, "err", de.err)
+		response.WriteError(w, http.StatusForbidden,
+			h.deps.Cfg.Cache.ControlDeny,
+			"L1=DENY/BAD_DOMAIN",
+			key, vkey)
+		return
+	}
+
 	// File too large: 413, no fallback, no cache.
 	if _, ok := err.(*fileTooLargeError); ok {
 		slog.Warn("origin response too large", "url", rawURL)
@@ -632,6 +649,14 @@ func (h *ProxyHandler) asyncTrackerSet(key string) {
 type originError struct {
 	statusCode int
 }
+
+// deniedError is returned when the fetcher refused a blacklisted redirect
+// target or IP (fetcher.ErrDenied).
+type deniedError struct {
+	err error
+}
+
+func (e *deniedError) Error() string { return e.err.Error() }
 
 // fileTooLargeError is returned when the origin response exceeds MAX_FILE_SIZE.
 type fileTooLargeError struct{}

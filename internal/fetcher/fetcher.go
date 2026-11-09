@@ -8,11 +8,25 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"time"
 )
 
 // ErrFileTooLarge is returned when the response body exceeds MaxFileSize.
 var ErrFileTooLarge = errors.New("file too large")
+
+// ErrDenied is returned (wrapped) when a redirect target or a dialed IP is on
+// the origin blacklist.
+var ErrDenied = errors.New("origin denied by blacklist")
+
+// Denylist is the origin blacklist as seen by the fetcher. The handler checks
+// the requested URL's host before fetching; the fetcher additionally checks
+// every redirect target and every IP it connects to, so a redirect or a name
+// resolving to a blocked IP cannot get around the blacklist.
+type Denylist interface {
+	DeniesHost(host string) bool
+	DeniesIP(ip netip.Addr) bool
+}
 
 const userAgentTemplate = "NextMediaDelivery/%s (+https://github.com/highemerly/media-delivery; misskey compatible media proxy)"
 
@@ -37,6 +51,7 @@ type Config struct {
 	AllowedPrivateCIDRs []string // empty = block all private
 	CDNName             string   // used for outbound CDN-Loop header (RFC 8586)
 	Version             string   // app version embedded in User-Agent; defaults to "dev"
+	Denylist            Denylist // optional origin blacklist
 }
 
 // HTTPFetcher is a production Fetcher with redirect limit and SSRF guard.
@@ -48,7 +63,7 @@ type HTTPFetcher struct {
 }
 
 func New(cfg Config) *HTTPFetcher {
-	transport := newSSRFTransport(cfg.AllowedPrivateCIDRs)
+	transport := newSSRFTransport(cfg.AllowedPrivateCIDRs, cfg.Denylist)
 	// Disable automatic Accept-Encoding / transparent decompression.
 	transport.base.DisableCompression = true
 
@@ -59,6 +74,9 @@ func New(cfg Config) *HTTPFetcher {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= redirectsLeft {
 				return fmt.Errorf("stopped after %d redirects", redirectsLeft)
+			}
+			if cfg.Denylist != nil && cfg.Denylist.DeniesHost(req.URL.Hostname()) {
+				return fmt.Errorf("%w: redirect to %s", ErrDenied, req.URL.Hostname())
 			}
 			// Sanitize redirect request: remove sensitive headers.
 			req.Header.Del("Cookie")
