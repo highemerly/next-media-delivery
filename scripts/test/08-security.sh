@@ -6,6 +6,7 @@
 # 08c: http://127.0.0.1    → SSRF (loopback) → networkError → 502, L1=MISS, ORI=TIMEOUT, max-age=120, must-revalidate
 # 08d: http://192.168.10.1 → SSRF (private)  → networkError → 502, L1=MISS, ORI=TIMEOUT, max-age=120, must-revalidate
 # 08e: https://dnserror.piyo.me → DNS失敗 → networkError → 502, L1=MISS, ORI=TIMEOUT, max-age=120, must-revalidate
+# 08f: http://[::]:3000        → SSRF (IPv6 unspecified。Linux では接続先がローカルホストになる) → 502, L1=MISS, ORI=TIMEOUT, max-age=120, must-revalidate
 source "$(dirname "$0")/lib.sh"
 
 # ---- 08a: file:// スキーム ----
@@ -98,9 +99,29 @@ test_dns_failure() {
   return $ok
 }
 
+# ---- 08f: http://[::]:3000 (IPv6 unspecified → ローカルホスト) ----
+# ブロックしないと、プロキシ自身（HOST=0.0.0.0 は IPv6 でも待ち受ける）の /healthz に届く。
+test_ssrf_unspecified_v6() {
+  local encoded url
+  encoded=$(encode_url "http://[::]:3000/healthz")
+  url=$(proxy_url "08f-unspecified-v6.png" "$encoded" "emoji")
+
+  get_response "$url"
+  local nc cc
+  nc=$(extract_header "nmd-cache"     "$RESP_HEADERS")
+  cc=$(extract_header "cache-control" "$RESP_HEADERS")
+
+  local ok=0
+  assert_http_status "502"                       "$RESP_STATUS" "HTTP status"   || ok=1
+  assert_eq "L1=MISS, ORI=TIMEOUT"              "$nc"          "Nmd-Cache"     || ok=1
+  assert_eq "max-age=120, must-revalidate"       "$cc"          "Cache-Control" || ok=1
+  return $ok
+}
+
 run_test "08a: Bad scheme file:// → 403"          test_bad_scheme_file
 run_test "08b: Bad scheme ftp:// → 403"           test_bad_scheme_ftp
 run_test "08c: SSRF loopback 127.0.0.1 → 502"    test_ssrf_loopback
 run_test "08d: SSRF private 192.168.10.1 → 502"  test_ssrf_private
 run_test "08e: DNS failure → 502"                 test_dns_failure
+run_test "08f: SSRF unspecified [::] → 502"       test_ssrf_unspecified_v6
 print_summary
