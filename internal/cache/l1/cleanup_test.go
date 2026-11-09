@@ -148,6 +148,57 @@ func TestRunOnce_evictsOldestFirst(t *testing.T) {
 	}
 }
 
+// Eviction follows the last access (AccessTracker), not the write time: an
+// old file that is still being read survives newer files nobody reads.
+func TestRunOnce_evictsLeastRecentlyUsed(t *testing.T) {
+	c := newTestCache(t)
+	tracker := store.NewMemoryTracker()
+	ctx := context.Background()
+
+	putEntry(t, c, "key_popular", 100, -3*time.Hour)              // written first, read a minute ago
+	putEntry(t, c, "key_mid", 100, -2*time.Hour)                  // never read since written
+	putEntry(t, c, "key_new", 100, -1*time.Hour)                  // never read since written
+	tracker.Set(ctx, "key_popular", time.Now().Add(-time.Minute)) //nolint:errcheck
+
+	// maxBytes=250, tgtBytes=150 → two entries go: key_mid, then key_new.
+	cl := newCleaner(c, tracker, 250, 150)
+	cl.runOnce(ctx)
+
+	keys, _ := c.KeysWithSize()
+	if _, ok := keys["key_popular"]; !ok {
+		t.Error("key_popular was read recently and should have been kept")
+	}
+	if _, ok := keys["key_mid"]; ok {
+		t.Error("key_mid should have been evicted")
+	}
+	if _, ok := keys["key_new"]; ok {
+		t.Error("key_new should have been evicted")
+	}
+}
+
+// A tracker time older than the file (the tracker update raced the write)
+// does not make an entry look older than it is.
+func TestRunOnce_trackerOlderThanMtime(t *testing.T) {
+	c := newTestCache(t)
+	tracker := store.NewMemoryTracker()
+	ctx := context.Background()
+
+	putEntry(t, c, "key_a", 100, -2*time.Hour)
+	putEntry(t, c, "key_b", 100, -1*time.Hour)
+	tracker.Set(ctx, "key_b", time.Now().Add(-3*time.Hour)) //nolint:errcheck
+
+	cl := newCleaner(c, tracker, 150, 110)
+	cl.runOnce(ctx)
+
+	keys, _ := c.KeysWithSize()
+	if _, ok := keys["key_a"]; ok {
+		t.Error("key_a (older mtime) should have been evicted")
+	}
+	if _, ok := keys["key_b"]; !ok {
+		t.Error("key_b should have been kept")
+	}
+}
+
 // Evicted keys must also be removed from the tracker.
 func TestRunOnce_evictionRemovesTrackerEntries(t *testing.T) {
 	c := newTestCache(t)

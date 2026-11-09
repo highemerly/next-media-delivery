@@ -63,17 +63,25 @@ func (cl *Cleaner) runOnce(ctx context.Context) {
 		"target_bytes", cl.tgtBytes,
 	)
 
-	// Sort keys oldest-mtime first.
+	// Sort keys least-recently-used first. The last access comes from the
+	// AccessTracker (updated on every L1/L2 hit and origin fetch); the file
+	// mtime is only the write time, so sorting by it alone evicted popular
+	// entries as soon as they got old. Keys the tracker does not know (e.g.
+	// after a restart) fall back to their mtime.
 	type kv struct {
-		key   string
-		mtime time.Time
-		size  int64
+		key        string
+		lastAccess time.Time
+		mtime      time.Time
+		size       int64
 	}
 	sorted := make([]kv, 0, len(keysWithSize))
 	for k, e := range keysWithSize {
-		sorted = append(sorted, kv{k, e.Mtime, e.Size})
+		sorted = append(sorted, kv{k, cl.lastAccess(ctx, k, e.Mtime), e.Mtime, e.Size})
 	}
 	sort.Slice(sorted, func(i, j int) bool {
+		if !sorted[i].lastAccess.Equal(sorted[j].lastAccess) {
+			return sorted[i].lastAccess.Before(sorted[j].lastAccess)
+		}
 		return sorted[i].mtime.Before(sorted[j].mtime)
 	})
 
@@ -103,6 +111,17 @@ func (cl *Cleaner) runOnce(ctx context.Context) {
 	}
 
 	cl.gcOrphans(ctx, keysWithSize)
+}
+
+// lastAccess returns the later of the tracker's last access time for key and
+// the file's mtime (the tracker update and the file write race on a fresh
+// entry, so either can be slightly ahead).
+func (cl *Cleaner) lastAccess(ctx context.Context, key string, mtime time.Time) time.Time {
+	t, ok, err := cl.tracker.Get(ctx, key)
+	if err != nil || !ok || t.Before(mtime) {
+		return mtime
+	}
+	return t
 }
 
 // gcOrphans removes tracker entries for keys that no longer exist on disk.
