@@ -113,6 +113,7 @@ func newSSRFTransport(allowedPrivateCIDRs []string) *ssrfTransport {
 		Proxy:                 nil,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   32, // Go's default of 2 drops most connections to busy origins after each burst
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
