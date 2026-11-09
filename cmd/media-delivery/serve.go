@@ -68,7 +68,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 		)
 	}
 
-	// HTTP fetcher with SSRF guard.
+	bl := blacklist.New(
+		cfg.Security.BlacklistDomains,
+		cfg.Security.BlacklistIPs,
+		cfg.Security.BlacklistFile,
+	)
+
+	// HTTP fetcher with SSRF guard. The blacklist is also enforced on
+	// redirect targets and on the IPs the fetcher connects to.
 	fetch := fetcher.New(fetcher.Config{
 		Timeout:             cfg.Fetch.Timeout,
 		MaxRedirects:        cfg.Fetch.MaxRedirects,
@@ -76,6 +83,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		AllowedPrivateCIDRs: cfg.Security.AllowedPrivateCIDRs,
 		CDNName:             cfg.Server.CDNName,
 		Version:             version,
+		Denylist:            bl,
 	})
 
 	// Image converter (libvips).
@@ -98,12 +106,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 		AdminPort:    cfg.Admin.Port,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	})
-
-	bl := blacklist.New(
-		cfg.Security.BlacklistDomains,
-		cfg.Security.BlacklistIPs,
-		cfg.Security.BlacklistFile,
-	)
 
 	fb := fallback.New(
 		cfg.Fallback.Avatar,

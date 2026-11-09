@@ -12,7 +12,7 @@ import (
 )
 
 func TestIPGuardCheck(t *testing.T) {
-	g := newIPGuard(nil)
+	g := newIPGuard(nil, nil)
 	tests := []struct {
 		ip      string
 		blocked bool
@@ -51,7 +51,7 @@ func TestIPGuardCheck(t *testing.T) {
 }
 
 func TestIPGuardAllowedPrivate(t *testing.T) {
-	g := newIPGuard([]string{"172.16.0.0/12", "not-a-cidr"})
+	g := newIPGuard([]string{"172.16.0.0/12", "not-a-cidr"}, nil)
 	if err := g.check(netip.MustParseAddr("172.18.0.5")); err != nil {
 		t.Errorf("allowed private network was blocked: %v", err)
 	}

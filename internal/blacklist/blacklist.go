@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"log/slog"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -43,39 +44,70 @@ func New(domains, ips []string, filePath string) *Blacklist {
 }
 
 // IsDenied returns true if the given raw URL's host is blocked.
+//
+// It does not resolve the name: this runs before the L1 lookup on every
+// request, cache hits included, and a DNS round trip there would slow down
+// every hit. IP/CIDR rules for names are enforced by the fetcher on the IPs it
+// actually connects to (DeniesIP), so only a request that reaches the origin
+// pays for resolution.
 func (bl *Blacklist) IsDenied(rawURL string) bool {
-	r := bl.current.Load()
-	if r == nil {
-		return false
-	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
-	host := u.Hostname()
+	return bl.DeniesHost(u.Hostname())
+}
 
-	// Domain check.
-	if _, ok := r.domains[strings.ToLower(host)]; ok {
-		return true
+// DeniesHost reports whether host (a name or an IP literal, as in
+// url.URL.Hostname) is blocked. It never resolves the name: the fetcher
+// checks the IPs it actually connects to with DeniesIP.
+//
+// A blocked domain also blocks its subdomains (blocking example.com blocks
+// cdn.example.com, as Misskey's blocked hosts do). Matching ignores case and
+// a trailing dot, since "example.com." is the same host as "example.com".
+func (bl *Blacklist) DeniesHost(host string) bool {
+	r := bl.current.Load()
+	if r == nil {
+		return false
 	}
-
-	// IP check (direct IP in URL or resolved).
-	ip := net.ParseIP(host)
-	if ip == nil {
-		addrs, err := net.LookupHost(host)
-		if err != nil || len(addrs) == 0 {
-			return false
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return r.deniesIP(ip)
+	}
+	name := normalizeDomain(host)
+	for name != "" {
+		if _, ok := r.domains[name]; ok {
+			return true
 		}
-		ip = net.ParseIP(addrs[0])
+		i := strings.IndexByte(name, '.')
+		if i < 0 {
+			break
+		}
+		name = name[i+1:]
 	}
-	if ip != nil {
-		for _, cidr := range r.cidrs {
-			if cidr.Contains(ip) {
-				return true
-			}
+	return false
+}
+
+// DeniesIP reports whether ip is in a blocked IP/CIDR.
+func (bl *Blacklist) DeniesIP(ip netip.Addr) bool {
+	r := bl.current.Load()
+	if r == nil {
+		return false
+	}
+	return r.deniesIP(ip)
+}
+
+func (r *rules) deniesIP(ip netip.Addr) bool {
+	ip = ip.WithZone("").Unmap()
+	for _, cidr := range r.cidrs {
+		if cidr.Contains(ip.AsSlice()) {
+			return true
 		}
 	}
 	return false
+}
+
+func normalizeDomain(d string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
 }
 
 func (bl *Blacklist) watch(filePath string, envDomains, envIPs []string) {
@@ -114,7 +146,9 @@ func (bl *Blacklist) watch(filePath string, envDomains, envIPs []string) {
 func parseRules(domains, ips []string, extra []string) *rules {
 	r := &rules{domains: make(map[string]struct{})}
 	for _, d := range domains {
-		r.domains[strings.ToLower(strings.TrimSpace(d))] = struct{}{}
+		if d = normalizeDomain(d); d != "" {
+			r.domains[d] = struct{}{}
+		}
 	}
 	for _, cidr := range append(ips, extra...) {
 		cidr = strings.TrimSpace(cidr)
