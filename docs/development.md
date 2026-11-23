@@ -45,7 +45,11 @@ gh api -X PUT repos/highemerly/next-media-delivery/rulesets/<id> --input .github
 
 依存は Renovate（GitHub App）が出す PR で上げる。設定は [.github/renovate.json5](../.github/renovate.json5)（各ルールの理由はコメント参照）。
 
-- **毎週月曜・木曜の 9時前（JST）** にまとめて PR が来る（Go の間接依存の一括更新は月曜のみ）。自動マージはしない。PR は自分に assign される。
+- **毎週月曜・木曜の 9時前（JST）** にまとめて PR が来る（Go の間接依存の一括更新は月曜のみ）。PR は自分に assign される。
+- **マイナー・パッチ・digest は CI（`ci-result`）が緑なら自動でマージされる。** 除くのは、Go のマイナー（1.27 → 1.28）、下の表で「手動」としたもの（automaxprocs・golang.org/x/sync）、
+  タグ時にしか動かないワークフロー（docker-build.yml・tag-release.yml）。
+  PR に1つでも除外の更新が入っていれば手でマージする。自動でマージされる PR は assign されない（「Assigned to you」に残るのは手で見るものだけ）。
+- 自動でマージされても main に入るだけ。本番へはリリース（タグ）とデプロイの PR のマージを経る。
 - **メジャー更新**は PR が自動では来ず、Issue「Dependency Dashboard」の Pending Approval に並ぶ（コード側の対応が要るため）。
 - 1つの PR にまとまるもの：
   - **Go**：go.mod の `go` ディレクティブ・Dockerfile の `golang:X.Y.Z-bookworm`・`.tool-versions`（CI の setup-go は go.mod を読むので、揃えないと CI とイメージで版がずれる）
@@ -58,22 +62,24 @@ gh api -X PUT repos/highemerly/next-media-delivery/rulesets/<id> --input .github
 
 ### PR が来たら
 
+自動でマージされなかったもの（assign されて残っているもの）を見る。
+
 1. CI（`ci-result`）が緑か見る。赤なら ruleset でマージできない。Go のソース・go.mod・Dockerfile の変更は checks と e2e が両方走る。
 2. PR 本文の変更履歴（Renovate が載せる）を読む。go.mod / go.sum の差分で、実際に入る版が変わっているかを見る（`go mod tidy` で間接依存も動くことがある）。
 3. 種類に応じて確認を足す。CI が見ているのは `go vet`・unit テストと、本番イメージを起動してのインテグレーションテスト（`scripts/test/`：変換・キャッシュ・ネガティブキャッシュ・SSRF ガード・ブラックリスト・admin API / CLI・条件付きリクエスト）まで：
 
    | 種類 | 例 | マージ前の確認 |
    |---|---|---|
-   | 画像処理 | `h2non/bimg`・`debian` / `golang` の digest（libvips の版が変わり得る） | e2e が実際の libvips で変換を通すので、緑ならマージ。アニメーションの判定（`internal/imageinfo`）も unit テストで見ている |
-   | Go の版 | Go グループ | checks・e2e が緑ならマージ。マイナー（1.26 → 1.27）はリリースノートで TLS・net/http の挙動の変更を見る |
-   | 実行時に効くが CI で直接見ていないもの | `go.uber.org/automaxprocs`（k8s の CPU 制限から GOMAXPROCS を決める）・`golang.org/x/sync`（singleflight の同時実行は CI で再現していない） | e2e で起動と通常のリクエストまでは確認済み。変更履歴を読む |
-   | 本番で使っていない機能の依存 | `fsnotify`（`ORIGIN_BLACKLIST_FILE` のホットリロード。本番は未設定） | CI 緑ならマージ |
-   | CLI | `spf13/cobra` | admin CLI のテスト（`10-admin-cli.sh`）が通れば可 |
-   | 0.x のもの | `golang.org/x/*` | 0.x はマイナーでも互換を崩し得るのに Renovate はメジャー扱いしない。変更履歴を読む |
-   | テスト用イメージ | test origin images | e2e が緑ならマージ |
-   | タグ時にしか動かない Actions | docker/login-action・docker/metadata-action・peter-evans/create-pull-request | PR の CI では実行されない。マージ後、次のリリースの docker-build.yml で初めて動く |
+   | 画像処理 | `h2non/bimg`・`debian` / `golang` の digest（libvips の版が変わり得る） | e2e が実際の libvips で変換を通すので、緑ならマージ（自動）。アニメーションの判定（`internal/imageinfo`）も unit テストで見ている |
+   | Go の版 | Go グループ | パッチと digest は自動。マイナー（1.27 → 1.28）は手動で、リリースノートで TLS・net/http の挙動の変更を見る |
+   | 実行時に効くが CI で直接見ていないもの | `go.uber.org/automaxprocs`（k8s の CPU 制限から GOMAXPROCS を決める）・`golang.org/x/sync`（singleflight の同時実行は CI で再現していない） | 手動。e2e で起動と通常のリクエストまでは確認済み。変更履歴を読む |
+   | 本番で使っていない機能の依存 | `fsnotify`（`ORIGIN_BLACKLIST_FILE` のホットリロード。本番は未設定） | CI 緑ならマージ（自動） |
+   | CLI | `spf13/cobra` | admin CLI のテスト（`10-admin-cli.sh`）が通れば可（自動） |
+   | 0.x のもの | `golang.org/x/*` | 0.x はマイナーでも互換を崩し得るのに Renovate はメジャー扱いしない（x/ 配下は Go 本体より緩い互換性の要件で出る）。直接の依存の x/sync は手動で変更履歴を読む。x/sys などの間接依存（Go indirect dependencies）は自動 |
+   | テスト用イメージ | test origin images | e2e が緑ならマージ（自動） |
+   | タグ時にしか動かない Actions | docker/login-action・docker/metadata-action・peter-evans/create-pull-request | 手動。PR の CI では実行されない。マージ後、次のリリースの docker-build.yml で初めて動く |
 4. squash マージする。
-5. 手元で取り込む：
+5. 手元で取り込む（自動でマージされたものも、作業を始める前に）：
    ```bash
    git switch main && git pull
    go mod download
@@ -88,7 +94,8 @@ gh api -X PUT repos/highemerly/next-media-delivery/rulesets/<id> --input .github
 ### その他
 
 - 今は要らない更新：PR を閉じる（その版は作り直されない。次の版が出れば再び PR になる）。恒久的に止めるなら renovate.json5 にルールを足す。
-- 急ぐ更新（セキュリティ修正など）：Dashboard の Awaiting Schedule でチェックを入れると、スケジュールを待たずに PR が作られる。
+- 脆弱性の修正：Dependabot alerts を有効にしてあり（Dependabot 自身の PR は無効のまま）、Renovate がスケジュールと公開からの3日待ちを待たずに PR を作る（題名の末尾に `[SECURITY]`）。自動マージの対象かどうかは通常と同じ。**マージしても本番には入らないので、マージしたらパッチ版をリリースする**。
+- その他の急ぐ更新：Dashboard の Awaiting Schedule でチェックを入れると、スケジュールを待たずに PR が作られる。
 - 衝突した PR は Renovate が自動で rebase する。急ぐときは PR 本文の rebase チェックボックスを入れる。
 - 手元で `go get -u` はしない（Renovate の PR とぶつかる）。依存の追加はブランチを切って PR で。
 
